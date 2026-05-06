@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMY Helper Portal</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #222222;
+    --border: #2e2e2e;
+    --accent: #f5c842;
+    --accent2: #e8a020;
+    --text: #e8e8e8;
+    --muted: #888;
+    --green: #4caf7d;
+    --red: #e05555;
+    --blue: #4a9eff;
+    --orange: #f58c42;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── SCREENS ── */
+  .screen { display: none; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; }
+  .screen.active { display: flex; }
+
+  /* ── AUTH BOX ── */
+  .auth-box { width: 400px; max-width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 36px; }
+  .auth-logo { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--accent); letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 8px; text-align: center; }
+  .auth-subtitle { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 28px; }
+  .auth-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; text-align: center; }
+  .auth-tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .auth-tab { flex: 1; padding: 10px; text-align: center; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .auth-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .auth-error { background: rgba(224,85,85,0.1); border: 1px solid rgba(224,85,85,0.3); color: var(--red); padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; display: none; }
+  .auth-success { background: rgba(76,175,125,0.1); border: 1px solid rgba(76,175,125,0.3); color: var(--green); padding: 10px 14px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; display: none; }
+
+  /* ── FORM ── */
+  .form-row { margin-bottom: 14px; }
+  .form-row label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+  .form-row input, .form-row select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; color: var(--text); font-size: 14px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.15s; }
+  .form-row input:focus, .form-row select:focus { border-color: var(--accent); }
+  select option { background: var(--surface); }
+
+  .btn-full { width: 100%; background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif; margin-top: 4px; transition: background 0.15s; }
+  .btn-full:hover { background: var(--accent2); }
+  .btn-ghost-full { width: 100%; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-size: 13px; cursor: pointer; font-family: 'DM Sans', sans-serif; margin-top: 8px; transition: all 0.15s; }
+  .btn-ghost-full:hover { color: var(--text); border-color: var(--text); }
+
+  /* ── PORTAL APP ── */
+  #portal-app { display: none; flex-direction: column; min-height: 100vh; }
+  #portal-app.active { display: flex; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100; }
+  .logo { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; }
+  .header-right { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+
+  .nav { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; padding: 0 24px; overflow-x: auto; }
+  .nav-tab { padding: 10px 18px; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+  .nav-tab:hover { color: var(--text); }
+  .nav-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .main { flex: 1; padding: 24px; max-width: 900px; width: 100%; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+  .card-title { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 16px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .section-title { font-size: 18px; font-weight: 700; }
+
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+  .stat-label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .stat-value { font-size: 32px; font-weight: 700; color: var(--accent); font-family: 'DM Mono', monospace; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-family: 'DM Mono', monospace; font-weight: 500; }
+  .badge-ww { background: rgba(74,158,255,0.15); color: var(--blue); border: 1px solid rgba(74,158,255,0.3); }
+  .badge-tv { background: rgba(76,175,125,0.15); color: var(--green); border: 1px solid rgba(76,175,125,0.3); }
+  .badge-cl { background: rgba(245,140,66,0.15); color: var(--orange); border: 1px solid rgba(245,140,66,0.3); }
+  .badge-pending { background: rgba(136,136,136,0.15); color: var(--muted); border: 1px solid var(--border); }
+  .badge-claimed { background: rgba(74,158,255,0.15); color: var(--blue); border: 1px solid rgba(74,158,255,0.3); }
+  .badge-installed { background: rgba(76,175,125,0.15); color: var(--green); border: 1px solid rgba(76,175,125,0.3); }
+  .badge-complete { background: rgba(46,46,46,0.5); color: var(--muted); border: 1px solid var(--border); }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; font-family: 'DM Sans', sans-serif; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  .job-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .job-card:hover { border-color: var(--accent); }
+
+  .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+
+  .alert { padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+  .alert-warn { background: rgba(245,200,66,0.1); border: 1px solid rgba(245,200,66,0.3); color: var(--accent); }
+  .alert-success { background: rgba(76,175,125,0.1); border: 1px solid rgba(76,175,125,0.3); color: var(--green); }
+
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface); border: 1px solid var(--green); color: var(--green); padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; z-index: 999; transform: translateY(80px); opacity: 0; transition: all 0.3s; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  @media (max-width: 600px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .main { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ SCREEN: LANDING ═══ -->
+<div class="screen active" id="screen-landing">
+  <div class="auth-box">
+    <div class="auth-logo">Card My Yard</div>
+    <div class="auth-subtitle">Helper Portal</div>
+    <div class="auth-title">Welcome</div>
+    <button class="btn-full" onclick="showScreen('screen-login')">Sign In</button>
+    <button class="btn-ghost-full" onclick="showScreen('screen-setup')">Set Up My Account</button>
+  </div>
+</div>
+
+<!-- ═══ SCREEN: LOGIN ═══ -->
+<div class="screen" id="screen-login">
+  <div class="auth-box">
+    <div class="auth-logo">Card My Yard</div>
+    <div class="auth-subtitle">Helper Portal</div>
+    <div class="auth-title">Sign In</div>
+    <div class="auth-error" id="login-error">Email or password is incorrect.</div>
+    <div class="form-row"><label>Email</label><input type="email" id="login-email" placeholder="your@email.com"></div>
+    <div class="form-row"><label>Password</label><input type="password" id="login-password" placeholder="Your password" onkeydown="if(event.key==='Enter')doHelperLogin()"></div>
+    <button class="btn-full" onclick="doHelperLogin()">Sign In</button>
+    <button class="btn-ghost-full" onclick="showScreen('screen-landing')">← Back</button>
+  </div>
+</div>
+
+<!-- ═══ SCREEN: SETUP (Invite Code) ═══ -->
+<div class="screen" id="screen-setup">
+  <div class="auth-box">
+    <div class="auth-logo">Card My Yard</div>
+    <div class="auth-subtitle">Helper Portal</div>
+    <div class="auth-title">Create Your Account</div>
+    <div class="auth-error" id="setup-error"></div>
+    <div class="auth-success" id="setup-success"></div>
+
+    <!-- Step 1: Invite code -->
+    <div id="setup-step-1">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Enter the invite code your admin sent you to get started.</p>
+      <div class="form-row"><label>Invite Code</label><input type="text" id="setup-code" placeholder="XXXXXXXX" style="font-family:'DM Mono',monospace;letter-spacing:0.15em;text-transform:uppercase;font-size:18px;" oninput="this.value=this.value.toUpperCase()"></div>
+      <button class="btn-full" onclick="validateInviteCode()">Continue</button>
+      <button class="btn-ghost-full" onclick="showScreen('screen-landing')">← Back</button>
+    </div>
+
+    <!-- Step 2: Profile -->
+    <div id="setup-step-2" style="display:none;">
+      <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Almost there. Fill in your details to complete your profile.</p>
+      <div class="form-row"><label>Full Name</label><input type="text" id="setup-name" placeholder="First Last"></div>
+      <div class="form-row"><label>Email</label><input type="email" id="setup-email" placeholder="your@email.com"></div>
+      <div class="form-row"><label>Phone</label><input type="tel" id="setup-phone" placeholder="(555) 555-5555"></div>
+      <div class="form-row"><label>Create Password</label><input type="password" id="setup-password" placeholder="Min 8 characters"></div>
+      <div class="form-row"><label>Confirm Password</label><input type="password" id="setup-password2" placeholder="Repeat password"></div>
+      <button class="btn-full" onclick="completeSetup()">Create Account</button>
+    </div>
+
+    <!-- Step 3: Done -->
+    <div id="setup-step-3" style="display:none;">
+      <div style="text-align:center;padding:20px 0;">
+        <div style="font-size:48px;margin-bottom:16px;">✓</div>
+        <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Account Created!</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:24px;">Your profile is pending admin approval. You'll be able to claim jobs once approved. In the meantime, complete your training modules.</p>
+        <button class="btn-full" onclick="goToPortalAfterSetup()">Go to My Portal</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ PORTAL APP ═══ -->
+<div id="portal-app">
+  <div class="header">
+    <div class="logo">CMY // Helper Portal</div>
+    <div class="header-right">
+      <span id="portal-helper-name-header" style="color:var(--accent);font-weight:600;"></span>
+      <button class="btn btn-ghost btn-sm" onclick="helperLogout()">Sign Out</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <div class="nav-tab active" onclick="showPortalTab('my-jobs')">My Jobs</div>
+    <div class="nav-tab" onclick="showPortalTab('available')">Available Jobs</div>
+    <div class="nav-tab" onclick="showPortalTab('training')">Training</div>
+    <div class="nav-tab" onclick="showPortalTab('profile')">My Profile</div>
+  </div>
+
+  <div class="main">
+
+    <!-- MY JOBS -->
+    <div class="panel active" id="portal-panel-my-jobs">
+      <div class="section-header"><div class="section-title">My Jobs</div></div>
+      <div class="grid-3">
+        <div class="stat"><div class="stat-label">Claimed</div><div class="stat-value" id="p-stat-claimed">0</div></div>
+        <div class="stat"><div class="stat-label">Completed</div><div class="stat-value" id="p-stat-completed">0</div></div>
+        <div class="stat"><div class="stat-label">Est. Pay</div><div class="stat-value" id="p-stat-pay" style="color:var(--green);">$0</div></div>
+      </div>
+      <div id="my-jobs-list"><div class="card" style="color:var(--muted);text-align:center;padding:40px;">No jobs claimed yet.</div></div>
+    </div>
+
+    <!-- AVAILABLE JOBS -->
+    <div class="panel" id="portal-panel-available">
+      <div class="section-header"><div class="section-title">Available Jobs</div></div>
+      <div id="approval-warning" class="alert alert-warn" style="display:none;">Your account is pending admin approval. You can browse jobs but cannot claim them yet.</div>
+      <div id="available-jobs-list"><div class="card" style="color:var(--muted);text-align:center;padding:40px;">No available jobs right now.</div></div>
+    </div>
+
+    <!-- TRAINING -->
+    <div class="panel" id="portal-panel-training">
+      <div class="section-header"><div class="section-title">Training</div></div>
+      <div id="training-progress-bar-wrap" style="margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+          <span style="font-size:13px;font-weight:600;">Overall Progress</span>
+          <span id="training-progress-label" style="font-size:13px;color:var(--muted);font-family:'DM Mono',monospace;">0/0</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="training-progress-fill" style="width:0%"></div></div>
+      </div>
+      <div id="portal-training-list"><div class="card" style="color:var(--muted);text-align:center;padding:40px;">No training modules available.</div></div>
+    </div>
+
+    <!-- PROFILE -->
+    <div class="panel" id="portal-panel-profile">
+      <div class="section-header"><div class="section-title">My Profile</div></div>
+      <div class="card">
+        <div class="card-title">Account Details</div>
+        <div id="profile-details" style="font-size:14px;line-height:2;"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Change Password</div>
+        <div id="pw-change-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:10px;"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-family:'DM Mono',monospace;">Current</label><input type="password" id="p-pw-current"></div>
+          <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-family:'DM Mono',monospace;">New</label><input type="password" id="p-pw-new"></div>
+          <div><label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-family:'DM Mono',monospace;">Confirm</label><input type="password" id="p-pw-confirm"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="helperChangePassword()">Update Password</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// SHARED STATE
+// The helper portal reads from the same localStorage key as the admin platform.
+// When server-hosted, both will talk to the same API/DB instead.
+// ═══════════════════════════════════════════
+
+function getAdminState() {
+  try { return JSON.parse(localStorage.getItem('cmy_ops_state') || '{}'); } catch(e) { return {}; }
+}
+
+function saveAdminState(s) {
+  try { localStorage.setItem('cmy_ops_state', JSON.stringify(s)); } catch(e) {} 
+}
+
+let currentHelper = null; // loaded from sessionStorage on login
+
+// ═══════════════════════════════════════════
+// SCREENS
+// ═══════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ═══════════════════════════════════════════
+// AUTH — HELPER
+// ═══════════════════════════════════════════
+async function hashPassword(pw) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function doHelperLogin() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pw = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+
+  const adminState = getAdminState();
+  const helpers = adminState.helpers || [];
+  const helper = helpers.find(h => (h.email||'').toLowerCase() === email);
+
+  if (!helper || !helper.passwordHash) { errEl.style.display='block'; return; }
+
+  const hash = await hashPassword(pw);
+  if (hash !== helper.passwordHash) { errEl.style.display='block'; return; }
+
+  errEl.style.display = 'none';
+  sessionStorage.setItem('cmy_helper_session', JSON.stringify({ id: helper.id }));
+  loadHelperPortal(helper.id);
+}
+
+function helperLogout() {
+  sessionStorage.removeItem('cmy_helper_session');
+  currentHelper = null;
+  document.getElementById('portal-app').style.display = 'none';
+  document.getElementById('portal-app').classList.remove('active');
+  showScreen('screen-landing');
+}
+
+// ═══════════════════════════════════════════
+// SETUP — INVITE CODE FLOW
+// ═══════════════════════════════════════════
+let pendingInviteCode = null;
+
+function validateInviteCode() {
+  const code = document.getElementById('setup-code').value.trim().toUpperCase();
+  const errEl = document.getElementById('setup-error');
+  const adminState = getAdminState();
+  const invites = adminState.invites || [];
+  const invite = invites.find(i => i.code === code && !i.used);
+
+  if (!invite) {
+    errEl.textContent = 'Invalid or already used invite code. Contact your admin.';
+    errEl.style.display = 'block'; return;
+  }
+
+  errEl.style.display = 'none';
+  pendingInviteCode = code;
+
+  // Pre-fill known data
+  if (invite.name) document.getElementById('setup-name').value = invite.name;
+  if (invite.email) document.getElementById('setup-email').value = invite.email;
+
+  document.getElementById('setup-step-1').style.display = 'none';
+  document.getElementById('setup-step-2').style.display = 'block';
+}
+
+async function completeSetup() {
+  const name = document.getElementById('setup-name').value.trim();
+  const email = document.getElementById('setup-email').value.trim().toLowerCase();
+  const phone = document.getElementById('setup-phone').value.trim();
+  const pw = document.getElementById('setup-password').value;
+  const pw2 = document.getElementById('setup-password2').value;
+  const errEl = document.getElementById('setup-error');
+
+  if (!name) { errEl.textContent='Name is required.'; errEl.style.display='block'; return; }
+  if (!email) { errEl.textContent='Email is required.'; errEl.style.display='block'; return; }
+  if (pw.length < 8) { errEl.textContent='Password must be at least 8 characters.'; errEl.style.display='block'; return; }
+  if (pw !== pw2) { errEl.textContent='Passwords do not match.'; errEl.style.display='block'; return; }
+
+  const adminState = getAdminState();
+  if (!adminState.helpers) adminState.helpers = [];
+  if (!adminState.invites) adminState.invites = [];
+
+  // Check email not already used
+  if (adminState.helpers.find(h => (h.email||'').toLowerCase() === email)) {
+    errEl.textContent='An account with that email already exists.'; errEl.style.display='block'; return;
+  }
+
+  const invite = adminState.invites.find(i => i.code === pendingInviteCode);
+  const pwHash = await hashPassword(pw);
+
+  const newHelper = {
+    id: Date.now(),
+    name, email, phone,
+    territory: invite?.territory || 'WW',
+    passwordHash: pwHash,
+    approved: false,
+    jobsDone: 0,
+    trainingComplete: [],
+    inviteCode: pendingInviteCode,
+    createdAt: new Date().toISOString()
+  };
+
+  adminState.helpers.push(newHelper);
+  // Mark invite as used
+  const inv = adminState.invites.find(i => i.code === pendingInviteCode);
+  if (inv) { inv.used = true; inv.usedBy = email; inv.usedAt = new Date().toISOString(); }
+
+  saveAdminState(adminState);
+  errEl.style.display = 'none';
+
+  // Auto-login
+  sessionStorage.setItem('cmy_helper_session', JSON.stringify({ id: newHelper.id }));
+
+  document.getElementById('setup-step-2').style.display = 'none';
+  document.getElementById('setup-step-3').style.display = 'block';
+}
+
+function goToPortalAfterSetup() {
+  const session = JSON.parse(sessionStorage.getItem('cmy_helper_session') || 'null');
+  if (session) loadHelperPortal(session.id);
+}
+
+// ═══════════════════════════════════════════
+// PORTAL
+// ═══════════════════════════════════════════
+function loadHelperPortal(helperId) {
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === helperId);
+  if (!helper) { helperLogout(); return; }
+
+  currentHelper = helper;
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const app = document.getElementById('portal-app');
+  app.style.display = 'flex';
+  app.style.flexDirection = 'column';
+
+  document.getElementById('portal-helper-name-header').textContent = helper.name;
+  renderMyJobs();
+  renderAvailableJobs();
+  renderPortalTraining();
+  renderProfile();
+}
+
+function showPortalTab(tab) {
+  document.querySelectorAll('#portal-app .panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('#portal-app .nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('portal-panel-' + tab).classList.add('active');
+  event.target.classList.add('active');
+  if (tab === 'my-jobs') renderMyJobs();
+  if (tab === 'available') renderAvailableJobs();
+  if (tab === 'training') renderPortalTraining();
+  if (tab === 'profile') renderProfile();
+}
+
+function renderMyJobs() {
+  const adminState = getAdminState();
+  const jobs = (adminState.jobs || []).filter(j => j.helper === currentHelper.id);
+  const completed = jobs.filter(j => j.status === 'complete');
+  const rate = currentHelper.payOverride || (adminState.settings?.standardRate || 40);
+
+  document.getElementById('p-stat-claimed').textContent = jobs.filter(j => j.status !== 'complete').length;
+  document.getElementById('p-stat-completed').textContent = completed.length;
+  document.getElementById('p-stat-pay').textContent = `$${(completed.length * rate).toFixed(2)}`;
+
+  const el = document.getElementById('my-jobs-list');
+  if (!jobs.length) { el.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;padding:40px;">No jobs claimed yet.</div>'; return; }
+
+  el.innerHTML = jobs.sort((a,b) => (a.eventDate||'') < (b.eventDate||'') ? -1 : 1).map(j => `
+    <div class="job-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <div style="font-weight:600;margin-bottom:2px;">${j.address}</div>
+          <div style="font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;">${j.eventDate||'—'}</div>
+        </div>
+        <span class="badge badge-${j.status}">${j.status}</span>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${j.details?.slice(0,100)||''}</div>
+      ${j.status === 'claimed' ? `<button class="btn btn-primary btn-sm" onclick="markInstalled(${j.id})">Mark Installed</button>` : ''}
+      ${j.status === 'installed' ? `<span style="font-size:12px;color:var(--green);">✓ Awaiting admin completion</span>` : ''}
+    </div>
+  `).join('');
+}
+
+function markInstalled(jobId) {
+  const adminState = getAdminState();
+  const job = (adminState.jobs || []).find(j => j.id === jobId);
+  if (job) { job.status = 'installed'; saveAdminState(adminState); renderMyJobs(); toast('Marked as installed ✓'); }
+}
+
+function renderAvailableJobs() {
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  currentHelper = helper || currentHelper;
+
+  const warnEl = document.getElementById('approval-warning');
+  warnEl.style.display = helper?.approved ? 'none' : 'block';
+
+  const available = (adminState.jobs || []).filter(j =>
+    j.status === 'pending' && !j.helper && j.type !== 'pov' &&
+    (helper?.territory === 'ALL' || j.territory === helper?.territory)
+  ).sort((a,b) => (a.eventDate||'') < (b.eventDate||'') ? -1 : 1);
+
+  const el = document.getElementById('available-jobs-list');
+  if (!available.length) { el.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;padding:40px;">No available jobs right now. Check back soon.</div>'; return; }
+
+  el.innerHTML = available.map(j => `
+    <div class="job-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+        <div>
+          <div style="font-weight:600;margin-bottom:2px;">${j.address}</div>
+          <div style="font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;">${j.eventDate||'—'} &nbsp;·&nbsp; Setup: ${j.setupDate||'—'}</div>
+        </div>
+        <span class="badge badge-${(j.territory||'').toLowerCase()}">${j.territory}</span>
+      </div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;">${j.details?.slice(0,100)||''}</div>
+      <button class="btn btn-primary btn-sm" onclick="claimJob(${j.id})" ${!helper?.approved?'disabled style="opacity:0.4;cursor:not-allowed;"':''}>
+        ${helper?.approved ? 'Claim Job' : 'Approval Required'}
+      </button>
+    </div>
+  `).join('');
+}
+
+function claimJob(jobId) {
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  if (!helper?.approved) { toast('You need admin approval before claiming jobs.'); return; }
+  const job = (adminState.jobs || []).find(j => j.id === jobId);
+  if (!job) return;
+  job.helper = currentHelper.id;
+  job.status = 'claimed';
+  saveAdminState(adminState);
+  renderAvailableJobs();
+  renderMyJobs();
+  toast('Job claimed ✓');
+}
+
+function renderPortalTraining() {
+  const adminState = getAdminState();
+  const modules = adminState.trainingModules || [];
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  const done = (helper?.trainingComplete || []);
+
+  const total = modules.length;
+  const completed = done.filter(id => modules.find(m => m.id === id)).length;
+  document.getElementById('training-progress-label').textContent = `${completed}/${total}`;
+  document.getElementById('training-progress-fill').style.width = total ? `${completed/total*100}%` : '0%';
+
+  const el = document.getElementById('portal-training-list');
+  if (!modules.length) { el.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;padding:40px;">No training modules available yet.</div>'; return; }
+
+  el.innerHTML = modules.map((m, i) => {
+    const isDone = done.includes(m.id);
+    return `<div class="card" style="border-color:${isDone?'var(--green)':'var(--border)'};">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);">MODULE ${i+1}</span>
+            ${isDone ? '<span style="color:var(--green);font-size:12px;">✓ Complete — Pending Admin Sign-Off</span>' : ''}
+            ${m.required ? '<span style="font-size:11px;color:var(--accent);font-family:\'DM Mono\',monospace;">REQUIRED</span>' : ''}
+          </div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:6px;">${m.title}</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">${m.desc||''}</div>
+          ${m.url ? `<a href="${m.url}" target="_blank" style="font-size:13px;color:var(--blue);text-decoration:none;">▶ Watch Training Video</a>` : '<span style="font-size:12px;color:var(--muted);">Video coming soon</span>'}
+        </div>
+        <button class="btn btn-sm ${isDone?'btn-ghost':'btn-primary'}" style="margin-left:16px;flex-shrink:0;" onclick="markModuleDone(${m.id},this)">
+          ${isDone ? '✓ Done' : 'Mark Complete'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function markModuleDone(moduleId, btn) {
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  if (!helper) return;
+  if (!helper.trainingComplete) helper.trainingComplete = [];
+  if (!helper.trainingComplete.includes(moduleId)) {
+    helper.trainingComplete.push(moduleId);
+    saveAdminState(adminState);
+    currentHelper = helper;
+    renderPortalTraining();
+    toast('Module marked complete — your admin will sign off ✓');
+  }
+}
+
+function renderProfile() {
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  if (!helper) return;
+
+  document.getElementById('profile-details').innerHTML = `
+    <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 16px;">
+      <span style="color:var(--muted);font-size:13px;">Name</span><span style="font-weight:600;">${helper.name}</span>
+      <span style="color:var(--muted);font-size:13px;">Email</span><span>${helper.email||'—'}</span>
+      <span style="color:var(--muted);font-size:13px;">Phone</span><span>${helper.phone||'—'}</span>
+      <span style="color:var(--muted);font-size:13px;">Territory</span><span><span class="badge badge-${(helper.territory||'').toLowerCase()}">${helper.territory}</span></span>
+      <span style="color:var(--muted);font-size:13px;">Status</span><span style="color:${helper.approved?'var(--green)':'var(--accent)'};">${helper.approved?'✓ Approved':'Pending Approval'}</span>
+      <span style="color:var(--muted);font-size:13px;">Member Since</span><span style="font-family:'DM Mono',monospace;font-size:12px;">${helper.createdAt?.slice(0,10)||'—'}</span>
+    </div>
+  `;
+}
+
+async function helperChangePassword() {
+  const cur = document.getElementById('p-pw-current').value;
+  const nw = document.getElementById('p-pw-new').value;
+  const conf = document.getElementById('p-pw-confirm').value;
+  const errEl = document.getElementById('pw-change-error');
+
+  const adminState = getAdminState();
+  const helper = (adminState.helpers || []).find(h => h.id === currentHelper.id);
+  if (!helper) return;
+
+  const curHash = await hashPassword(cur);
+  if (curHash !== helper.passwordHash) { errEl.textContent='Current password is incorrect.'; errEl.style.display='block'; return; }
+  if (nw.length < 8) { errEl.textContent='New password must be at least 8 characters.'; errEl.style.display='block'; return; }
+  if (nw !== conf) { errEl.textContent='Passwords do not match.'; errEl.style.display='block'; return; }
+
+  helper.passwordHash = await hashPassword(nw);
+  saveAdminState(adminState);
+  errEl.style.display = 'none';
+  document.getElementById('p-pw-current').value = '';
+  document.getElementById('p-pw-new').value = '';
+  document.getElementById('p-pw-confirm').value = '';
+  toast('Password updated ✓');
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ═══════════════════════════════════════════
+// INIT — check for existing session
+// ═══════════════════════════════════════════
+window.addEventListener('load', () => {
+  const session = sessionStorage.getItem('cmy_helper_session');
+  if (session) {
+    try {
+      const { id } = JSON.parse(session);
+      loadHelperPortal(id);
+    } catch(e) { sessionStorage.removeItem('cmy_helper_session'); }
+  }
+});
+</script>
+</body>
+</html>
