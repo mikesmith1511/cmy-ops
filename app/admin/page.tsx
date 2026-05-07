@@ -293,7 +293,7 @@ export default function AdminPage() {
                 <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Upcoming Jobs (7 Days)</div>
                 {(() => {
                   const now = new Date()
-                  const upcoming = filteredJobs.filter(j => { const d = new Date(j.event_date); const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7 && j.status !== 'complete' }).sort((a, b) => a.event_date < b.event_date ? -1 : 1)
+                  const upcoming = filteredJobs.filter(j => { const d = new Date(j.event_date); const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7 && j.status !== 'complete' && j.status !== 'cancelled' }).sort((a, b) => a.event_date < b.event_date ? -1 : 1)
                   if (!upcoming.length) return <div style={{ color: S.muted, fontSize: 13 }}>No upcoming jobs.</div>
                   return upcoming.map(j => (
                     <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${S.border}` }}>
