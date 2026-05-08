@@ -1,70 +1,61 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTokenFromRequest, isAdmin } from '@/lib/auth'
 import { getServiceSupabase } from '@/lib/supabase'
-import { detectTerritory } from '@/lib/territory'
 
-export async function GET(req: NextRequest) {
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const token = getTokenFromRequest(req)
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
   const db = getServiceSupabase()
-  const { searchParams } = new URL(req.url)
-  const territory = searchParams.get('territory')
-  const status = searchParams.get('status')
-  const month = searchParams.get('month') // YYYY-MM
+  const body = await req.json()
+  const id = parseInt(params.id)
 
-  let query = db.from('jobs').select('*, helpers(name, email)').order('event_date', { ascending: true })
-
-  // Helpers only see their own jobs or available jobs
+  // Helpers can only update their own jobs (claim or mark installed)
   if (token.role === 'helper') {
-    const type = searchParams.get('type')
-    if (type === 'available') {
-      query = db.from('jobs')
-        .select('*')
-        .eq('status', 'pending')
-        .is('helper_id', null)
-        .neq('type', 'pov')
-        .order('event_date', { ascending: true })
-    } else {
-      query = db.from('jobs')
-        .select('*')
-        .eq('helper_id', token.id)
-        .order('event_date', { ascending: true })
+    const { data: job } = await db.from('jobs').select('*').eq('id', id).single()
+    if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // Claim: job must be unclaimed
+    if (body.action === 'claim') {
+      if (job.helper_id) return NextResponse.json({ error: 'Job already claimed' }, { status: 409 })
+      if (job.type === 'pov') return NextResponse.json({ error: 'Cannot claim POV jobs' }, { status: 403 })
+      const { data, error } = await db.from('jobs').update({ helper_id: token.id, status: 'claimed' }).eq('id', id).select().single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json(data)
     }
-  } else {
-    if (territory && territory !== 'ALL') query = query.eq('territory', territory)
-    if (status) query = query.eq('status', status)
-    if (month) {
-      const start = `${month}-01`
-      const end = `${month}-31`
-      query = query.gte('event_date', start).lte('event_date', end)
+
+    // Mark installed - REQUIRES a photo to be uploaded first
+    if (body.action === 'installed') {
+      if (job.helper_id !== token.id) return NextResponse.json({ error: 'Not your job' }, { status: 403 })
+      if (!job.photo_url) {
+        return NextResponse.json({
+          error: 'Install photo required before marking installed.'
+        }, { status: 400 })
+      }
+      const { data, error } = await db.from('jobs').update({ status: 'installed' }).eq('id', id).select().single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json(data)
     }
+
+    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
 
-  const { data, error } = await query
+  // Admin can update anything
+  const updates: any = {}
+  if (body.status !== undefined) updates.status = body.status
+  if (body.helperId !== undefined) updates.helper_id = body.helperId || null
+  if (body.setupDate !== undefined) updates.setup_date = body.setupDate
+  if (body.eventDate !== undefined) updates.event_date = body.eventDate
+  if (body.details !== undefined) updates.details = body.details
+
+  const { data, error } = await db.from('jobs').update(updates).eq('id', id).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)
 }
 
-export async function POST(req: NextRequest) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const db = getServiceSupabase()
-  const body = await req.json()
-
-  const territory = body.territory || detectTerritory(body.address || '')
-  const { data, error } = await db.from('jobs').insert({
-    setup_date: body.setupDate || null,
-    event_date: body.eventDate || null,
-    address: body.address,
-    customer: body.customer || null,
-    details: body.details || null,
-    contact: body.contact || null,
-    territory,
-    type: body.type || 'standard',
-    status: 'pending',
-    order_num: body.orderNum || null,
-  }).select().single()
-
+  const { error } = await db.from('jobs').delete().eq('id', parseInt(params.id))
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  return NextResponse.json({ ok: true })
 }

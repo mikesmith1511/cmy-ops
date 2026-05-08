@@ -42,6 +42,9 @@ export default function AdminPage() {
   const [fStatuses, setFStatuses] = useState<string[]>([])
   const [fHelpers, setFHelpers] = useState<string[]>([])
 
+  // Photo review modal state - holds the job whose photo is being reviewed
+  const [photoModalJob, setPhotoModalJob] = useState<any>(null)
+
   // Check session
   useEffect(() => {
     api('/api/auth/me').then(d => {
@@ -502,13 +505,13 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr>{['Setup Date','Event Date','Address','Customer','Territory','Type','Status','Helper','Actions'].map(h => (
+                    <tr>{['Setup Date','Event Date','Address','Customer','Territory','Type','Status','Helper','Photo','Actions'].map(h => (
                       <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}</tr>
                   </thead>
                   <tbody>
                     {filteredJobs.length === 0 && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
+                      <tr><td colSpan={10} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
                     )}
                     {filteredJobs.sort((a,b) => (a.event_date||'') < (b.event_date||'') ? -1 : 1).map(j => (
                       <tr key={j.id}>
@@ -528,6 +531,18 @@ export default function AdminPage() {
                             <option value="">Unassigned</option>
                             {helpers.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
                           </select>
+                        </td>
+                        <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                          {j.photo_url ? (
+                            <img
+                              src={j.photo_url}
+                              alt="Install"
+                              onClick={() => setPhotoModalJob(j)}
+                              style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4, border: `1px solid ${S.border}`, cursor: 'pointer' }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>—</span>
+                          )}
                         </td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><button style={btnDanger} onClick={() => deleteJob(j.id)}>✕</button></td>
                       </tr>
@@ -817,6 +832,44 @@ export default function AdminPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Photo Review Modal */}
+      {photoModalJob && (
+        <div onClick={() => setPhotoModalJob(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: S.surface, border: `1px solid ${S.border}`, borderRadius: 8, padding: 20, maxWidth: 700, width: '100%', maxHeight: '90vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Install Photo</div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{photoModalJob.address}</div>
+                <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace', marginTop: 4 }}>
+                  Event: {photoModalJob.event_date} · Setup: {photoModalJob.setup_date} · Status: {photoModalJob.status}
+                </div>
+              </div>
+              <button onClick={() => setPhotoModalJob(null)} style={{ background: 'transparent', border: 'none', color: S.muted, fontSize: 24, cursor: 'pointer', padding: 0, lineHeight: 1 }}>✕</button>
+            </div>
+
+            <img src={photoModalJob.photo_url} alt="Install" style={{ width: '100%', maxHeight: '60vh', objectFit: 'contain', borderRadius: 6, border: `1px solid ${S.border}`, marginBottom: 16, background: '#000' }} />
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <a href={photoModalJob.photo_url} target="_blank" rel="noreferrer" style={{ background: 'transparent', color: S.muted, border: `1px solid ${S.border}`, borderRadius: 6, padding: '8px 16px', fontSize: 13, textDecoration: 'none' }}>Open Full Size</a>
+              {photoModalJob.status !== 'complete' && (
+                <button
+                  style={{ background: S.green, color: '#000', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                  onClick={async () => {
+                    await updateJobStatus(photoModalJob.id, 'complete')
+                    setPhotoModalJob(null)
+                  }}
+                >
+                  ✓ Approve & Mark Complete
+                </button>
+              )}
+              {photoModalJob.status === 'complete' && (
+                <span style={{ fontSize: 13, color: S.green, alignSelf: 'center' }}>✓ Already complete</span>
+              )}
+            </div>
           </div>
         </div>
       )}

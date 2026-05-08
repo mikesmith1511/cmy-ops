@@ -117,6 +117,9 @@ export default function HelperPage() {
   const [routeError, setRouteError] = useState('')
   const [routeDate, setRouteDate] = useState<string>('') // empty = auto-pick
 
+  // Photo upload state - tracks which job is currently uploading
+  const [uploadingJobId, setUploadingJobId] = useState<number | null>(null)
+
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
   useEffect(() => {
@@ -187,6 +190,31 @@ export default function HelperPage() {
   async function markInstalled(jobId: number) {
     const res = await api(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify({ action: 'installed' }) })
     if (res.id) { showToast('Marked as installed ✓'); loadPortal() }
+    else showToast(res.error || 'Could not mark installed.')
+  }
+
+  // Upload an install photo for a claimed job. Triggered by file input change.
+  async function uploadPhoto(jobId: number, file: File) {
+    const fd = new FormData()
+    fd.append('photo', file)
+    setUploadingJobId(jobId)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/photo`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      })
+      const data = await res.json()
+      if (data.ok) {
+        showToast('Photo uploaded ✓')
+        loadPortal()
+      } else {
+        showToast(data.error || 'Upload failed.')
+      }
+    } catch (e: any) {
+      showToast(e.message || 'Upload failed.')
+    }
+    setUploadingJobId(null)
   }
 
   async function markModuleDone(moduleId: number) {
@@ -471,8 +499,66 @@ export default function HelperPage() {
                   <Badge t={j.status} />
                 </div>
                 {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{j.details}</div>}
-                {j.status === 'claimed' && <button style={btnSm} onClick={() => markInstalled(j.id)}>Mark Installed</button>}
-                {j.status === 'installed' && <span style={{ fontSize: 12, color: S.green }}>✓ Awaiting admin completion</span>}
+
+                {/* Photo upload + Mark Installed (claimed status only) */}
+                {j.status === 'claimed' && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {!j.photo_url && (
+                      <>
+                        <label style={{ ...btnSm, background: S.blue, color: '#fff', cursor: uploadingJobId === j.id ? 'wait' : 'pointer', display: 'inline-block' }}>
+                          {uploadingJobId === j.id ? 'Uploading...' : '📷 Upload Install Photo'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            style={{ display: 'none' }}
+                            disabled={uploadingJobId === j.id}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) uploadPhoto(j.id, f)
+                              e.target.value = '' // allow re-selecting same file
+                            }}
+                          />
+                        </label>
+                        <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>Photo required to mark installed</span>
+                      </>
+                    )}
+                    {j.photo_url && (
+                      <>
+                        <a href={j.photo_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                          <img src={j.photo_url} alt="Install photo" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${S.border}` }} />
+                        </a>
+                        <button style={btnSm} onClick={() => markInstalled(j.id)}>Mark Installed</button>
+                        <label style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', cursor: 'pointer', textDecoration: 'underline' }}>
+                          replace photo
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            style={{ display: 'none' }}
+                            disabled={uploadingJobId === j.id}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0]
+                              if (f) uploadPhoto(j.id, f)
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {j.status === 'installed' && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    {j.photo_url && (
+                      <a href={j.photo_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                        <img src={j.photo_url} alt="Install photo" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${S.border}` }} />
+                      </a>
+                    )}
+                    <span style={{ fontSize: 12, color: S.green }}>✓ Awaiting admin completion</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
