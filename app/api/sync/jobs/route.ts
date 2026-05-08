@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
       contact: job.contact || null,
       territory: job.territory || 'WW',
       type: job.type || 'standard',
+      kind: job.kind || 'drop',
       order_num: job.order_num || null,
       sync_source: 'sheet',
       last_sync_at: now,
@@ -155,7 +156,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 4. Soft-cancel any sheet-sourced jobs that weren't in the payload
+  // 4. Link drop/pick pairs by matching dedup_key prefixes
+  // After inserts, any newly-created drop+pick pair will have null paired_job_id.
+  // Match them by stripping the 'drop:' / 'pick:' prefix and finding the partner.
+  let paired = 0
+  try {
+    const { data: unpairedRows, error: unpairedErr } = await db
+      .from('jobs')
+      .select('id, dedup_key, kind, paired_job_id')
+      .is('paired_job_id', null)
+
+    if (!unpairedErr && unpairedRows && unpairedRows.length > 0) {
+      // Build lookup: bareKey -> {drop?: id, pick?: id}
+      const byBare = new Map<string, { drop?: number; pick?: number }>()
+      for (const r of unpairedRows) {
+        if (!r.dedup_key) continue
+        const m = r.dedup_key.match(/^(drop|pick):(.+)$/)
+        if (!m) continue
+        const [, kind, bare] = m
+        const slot = byBare.get(bare) || {}
+        if (kind === 'drop') slot.drop = r.id
+        else if (kind === 'pick') slot.pick = r.id
+        byBare.set(bare, slot)
+      }
+
+      // For each pair where both legs exist, link them bidirectionally
+      const pairUpdates: { id: number; paired_job_id: number }[] = []
+      byBare.forEach(({ drop, pick }) => {
+        if (drop && pick) {
+          pairUpdates.push({ id: drop, paired_job_id: pick })
+          pairUpdates.push({ id: pick, paired_job_id: drop })
+        }
+      })
+
+      // Apply updates (sequential to keep things simple)
+      for (const u of pairUpdates) {
+        await db.from('jobs').update({ paired_job_id: u.paired_job_id }).eq('id', u.id)
+      }
+      paired = pairUpdates.length / 2 // count of pairs, not individual updates
+    }
+  } catch (e: any) {
+    errors.push('Pair linking failed: ' + (e?.message || 'unknown'))
+  }
+
+  // 5. Soft-cancel any sheet-sourced jobs that weren't in the payload
   // Only cancel rows where:
   //   - sync_source = 'sheet' (we never touch manual rows)
   //   - status is still 'pending' (don't unclaim active jobs)
@@ -191,6 +235,7 @@ export async function POST(req: NextRequest) {
     synced: inserted + updated,
     inserted,
     updated,
+    paired,
     cancelled,
     errored,
     errors: errors.slice(0, 10), // limit error log size in response
