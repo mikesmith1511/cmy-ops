@@ -8,21 +8,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
         <style>{`
-          /* Date picker icon - white, double size, fully visible on dark theme */
+          /* Calendar picker indicator - force pure white, doubled size */
           input[type="date"]::-webkit-calendar-picker-indicator {
-            filter: invert(1) brightness(2);
-            cursor: pointer;
-            opacity: 1;
-            width: 24px;
-            height: 24px;
-            padding: 2px;
+            filter: invert(1) brightness(100) saturate(0) !important;
+            cursor: pointer !important;
+            opacity: 1 !important;
+            width: 24px !important;
+            height: 24px !important;
+            padding: 2px !important;
           }
           input[type="date"]::-webkit-calendar-picker-indicator:hover {
-            opacity: 0.8;
+            opacity: 0.7 !important;
           }
           input[type="date"] {
-            cursor: pointer;
-            color-scheme: dark;
+            cursor: pointer !important;
           }
         `}</style>
       </head>
