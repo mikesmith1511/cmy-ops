@@ -115,6 +115,7 @@ export default function HelperPage() {
   const [route, setRoute] = useState<any>(null)
   const [routeLoading, setRouteLoading] = useState(false)
   const [routeError, setRouteError] = useState('')
+  const [routeDate, setRouteDate] = useState<string>('') // empty = auto-pick
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -242,45 +243,37 @@ export default function HelperPage() {
     URL.revokeObjectURL(url)
   }
 
-  // FEATURE 3: Build today's route
-  async function buildRoute() {
+  // FEATURE 3: Build route (date-aware, server returns drops + pickups separately)
+  async function buildRoute(targetDate?: string) {
     setRouteLoading(true)
     setRouteError('')
-    setRoute(null)
     try {
-      const todayStr = new Date().toISOString().substring(0, 10)
-      // Active = claimed (not yet installed) for today's setup_date OR claimed jobs in general
-      const active = jobs.filter(j => j.status === 'claimed' || j.status === 'installed')
-      if (active.length === 0) {
-        setRouteError('No active jobs to route.')
-        setRouteLoading(false)
-        return
-      }
-      // Try to call optimization API (server-side, if Google key configured).
-      // Falls back to manual order with Google Maps URL if API isn't available.
       const res = await api('/api/route', {
         method: 'POST',
-        body: JSON.stringify({ jobIds: active.map(j => j.id) })
+        body: JSON.stringify(targetDate ? { date: targetDate } : {})
       })
       if (res.ok && res.route) {
         setRoute(res.route)
+        // Sync the date picker to whatever the server picked (or what we asked for)
+        if (res.route.date) setRouteDate(res.route.date)
       } else {
-        // Fallback: build basic Google Maps URL with all stops in current order
-        const stops = active.map(j => encodeURIComponent(j.address)).join('/')
-        const url = `https://www.google.com/maps/dir/${encodeURIComponent(HOME_OFFICE)}/${stops}/${encodeURIComponent(HOME_OFFICE)}`
-        setRoute({
-          stops: active.map((j, i) => ({ ...j, order: i + 1 })),
-          totalMiles: null,
-          mapsUrl: url,
-          optimized: false,
-          message: res.error || 'Route built without optimization (Google Maps API key not configured).'
-        })
+        setRouteError(res.error || 'Route build failed.')
+        setRoute(null)
       }
     } catch (e: any) {
       setRouteError(e.message || 'Route build failed.')
+      setRoute(null)
     }
     setRouteLoading(false)
   }
+
+  // Auto-load route when Route tab is opened (first time only per session)
+  useEffect(() => {
+    if (tab === 'route' && !route && !routeLoading && helper?.approved) {
+      buildRoute()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, helper?.approved])
 
   // Styles
   const card = { background: S.surface, border: `1px solid ${S.border}`, borderRadius: 8, padding: 20, marginBottom: 16 }
@@ -451,8 +444,8 @@ export default function HelperPage() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>My Jobs</h2>
-              {activeForRoute.length >= 2 && (
-                <button style={btnSm} onClick={() => setTab('route')}>🗺 Build Route ({activeForRoute.length})</button>
+              {activeForRoute.length >= 1 && (
+                <button style={btnSm} onClick={() => setTab('route')}>🗺 Build Route</button>
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
@@ -540,32 +533,36 @@ export default function HelperPage() {
           </div>
         )}
 
-        {/* ROUTE - daily route builder */}
+        {/* ROUTE - daily route builder (date-aware, drops + pickups) */}
         {tab === 'route' && (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Daily Route</h2>
             <p style={{ fontSize: 13, color: S.muted, marginBottom: 16 }}>
-              Build an optimized route through your active jobs. Always starts and ends at the home office:
-              <br /><span style={{ fontFamily: 'DM Mono, monospace', color: S.text }}>{HOME_OFFICE}</span>
+              Optimized route for the selected date. Auto-loads the next date with active work.
+              <br />
+              <span style={{ fontFamily: 'DM Mono, monospace', color: S.text }}>Home Office: {HOME_OFFICE}</span>
             </p>
 
-            {activeForRoute.length === 0 && (
-              <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>
-                No active jobs to route. Claim some jobs first.
-              </div>
-            )}
-
-            {activeForRoute.length > 0 && (
-              <div style={{ ...card, marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, color: S.muted }}>{activeForRoute.length} active job{activeForRoute.length > 1 ? 's' : ''} to route</div>
-                  <button style={btnSm} onClick={buildRoute} disabled={routeLoading}>
-                    {routeLoading ? 'Building...' : (route ? '🔄 Rebuild Route' : '🗺 Build Route')}
-                  </button>
+            <div style={{ ...card, padding: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'end' }}>
+                <div>
+                  <label style={lbl}>Route Date</label>
+                  <input
+                    style={select}
+                    type="date"
+                    value={routeDate}
+                    onChange={(e) => setRouteDate(e.target.value)}
+                  />
                 </div>
-                {routeError && <div style={{ color: S.red, fontSize: 13 }}>{routeError}</div>}
+                <button style={btnSm} onClick={() => buildRoute(routeDate || undefined)} disabled={routeLoading}>
+                  {routeLoading ? 'Building...' : '🗺 Build Route'}
+                </button>
+                <button style={{ ...btnSm, background: 'transparent', color: S.muted, border: `1px solid ${S.border}` }} onClick={() => { setRouteDate(''); buildRoute() }} disabled={routeLoading}>
+                  Auto-Pick
+                </button>
               </div>
-            )}
+              {routeError && <div style={{ color: S.red, fontSize: 13, marginTop: 12 }}>{routeError}</div>}
+            </div>
 
             {route && (
               <div>
@@ -575,35 +572,85 @@ export default function HelperPage() {
                   </div>
                 )}
 
-                {route.totalMiles !== null && route.totalMiles !== undefined && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 16 }}>
-                    <div style={card}>
-                      <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Total Miles</div>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: S.accent, fontFamily: 'DM Mono, monospace' }}>{route.totalMiles.toFixed(1)}</div>
-                    </div>
-                    <div style={card}>
-                      <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Stops</div>
-                      <div style={{ fontSize: 28, fontWeight: 700, color: S.accent, fontFamily: 'DM Mono, monospace' }}>{route.stops?.length || 0}</div>
-                    </div>
+                {(route.drops?.length === 0 && route.pickups?.length === 0) ? (
+                  <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>
+                    No drops or pickups on {route.date}.
                   </div>
-                )}
-
-                <a href={route.mapsUrl} target="_blank" rel="noreferrer" style={{ ...btn, display: 'block', textAlign: 'center', textDecoration: 'none', marginBottom: 16 }}>
-                  📍 Open in Google Maps
-                </a>
-
-                <div style={{ ...card }}>
-                  <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Stop Order</div>
-                  <div style={{ fontSize: 13, color: S.green, marginBottom: 8, fontFamily: 'DM Mono, monospace' }}>🏁 START: {HOME_OFFICE}</div>
-                  {(route.stops || []).map((s: any, i: number) => (
-                    <div key={s.id || i} style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, paddingBottom: 10 }}>
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.muted, marginBottom: 4 }}>STOP {i + 1}</div>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{s.address}</div>
-                      <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>{s.status} · ${jobPay(s, helper?.pay_override)}</div>
+                ) : (
+                  <>
+                    {/* Stats cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+                      <div style={card}>
+                        <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Drops</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: S.blue, fontFamily: 'DM Mono, monospace' }}>{route.drops?.length || 0}</div>
+                      </div>
+                      <div style={card}>
+                        <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Pickups</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: S.green, fontFamily: 'DM Mono, monospace' }}>{route.pickups?.length || 0}</div>
+                      </div>
+                      <div style={card}>
+                        <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Miles</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: S.accent, fontFamily: 'DM Mono, monospace' }}>{route.totalMiles !== null && route.totalMiles !== undefined ? route.totalMiles.toFixed(1) : '—'}</div>
+                      </div>
+                      <div style={card}>
+                        <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Type</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: S.text, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', paddingTop: 4 }}>{route.routeType}</div>
+                      </div>
                     </div>
-                  ))}
-                  <div style={{ borderTop: `1px solid ${S.border}`, paddingTop: 10, fontSize: 13, color: S.green, fontFamily: 'DM Mono, monospace' }}>🏁 END: {HOME_OFFICE}</div>
-                </div>
+
+                    {/* Open in Google Maps */}
+                    {route.mapsUrl && (
+                      <a href={route.mapsUrl} target="_blank" rel="noreferrer" style={{ ...btn, display: 'block', textAlign: 'center', textDecoration: 'none', marginBottom: 16 }}>
+                        📍 Open in Google Maps
+                      </a>
+                    )}
+
+                    {/* Stop list */}
+                    <div style={card}>
+                      <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                        Route Order · {route.date}
+                      </div>
+
+                      {/* START marker (only for routes that start at office) */}
+                      {(route.routeType === 'drops-only' || route.routeType === 'mixed') && (
+                        <div style={{ fontSize: 13, color: S.green, marginBottom: 8, fontFamily: 'DM Mono, monospace', paddingBottom: 8, borderBottom: `1px solid ${S.border}` }}>
+                          🏁 START: {HOME_OFFICE}
+                        </div>
+                      )}
+
+                      {/* DROP segment */}
+                      {(route.drops || []).map((s: any, i: number) => (
+                        <div key={`d-${s.id}`} style={{ paddingTop: 10, paddingBottom: 10, borderTop: i > 0 ? `1px dashed ${S.border}` : undefined }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.muted }}>STOP {s.order}</span>
+                            <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'DM Mono, monospace', fontWeight: 600, background: S.blue + '22', color: S.blue, border: `1px solid ${S.blue}44` }}>DROP</span>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>{s.address}</div>
+                          <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Event: {s.event_date} · ${jobPay(s, helper?.pay_override)}</div>
+                        </div>
+                      ))}
+
+                      {/* PICKUP segment */}
+                      {(route.pickups || []).map((s: any, i: number) => (
+                        <div key={`p-${s.id}`} style={{ paddingTop: 10, paddingBottom: 10, borderTop: `1px dashed ${S.border}` }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.muted }}>STOP {s.order}</span>
+                            <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'DM Mono, monospace', fontWeight: 600, background: S.green + '22', color: S.green, border: `1px solid ${S.green}44` }}>PICKUP</span>
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 600 }}>{s.address}</div>
+                          <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>Event was: {s.event_date} · ${jobPay(s, helper?.pay_override)}</div>
+                        </div>
+                      ))}
+
+                      {/* END marker (only for routes that end at office) */}
+                      {(route.routeType === 'pickups-only' || route.routeType === 'mixed') && (
+                        <div style={{ fontSize: 13, color: S.green, fontFamily: 'DM Mono, monospace', paddingTop: 10, borderTop: `1px solid ${S.border}`, marginTop: 8 }}>
+                          🏁 END: {HOME_OFFICE}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
