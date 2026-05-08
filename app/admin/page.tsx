@@ -115,6 +115,11 @@ export default function AdminPage() {
     if (res.id) { setHelpers(p => p.map(h => h.id === id ? res : h)); showToast(res.approved ? 'Helper approved ✓' : 'Approval removed') }
   }
 
+  async function togglePovApproval(id: number, current: boolean) {
+    const res = await api(`/api/helpers/${id}`, { method: 'PATCH', body: JSON.stringify({ villagesRealtyApproved: !current }) })
+    if (res.id) { setHelpers(p => p.map(h => h.id === id ? res : h)); showToast(res.villages_realty_approved ? 'POV access granted ✓' : 'POV access revoked') }
+  }
+
   async function deleteHelper(id: number) {
     if (!confirm('Remove this helper?')) return
     await api(`/api/helpers/${id}`, { method: 'DELETE' })
@@ -591,12 +596,12 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr>{['Name','Email','Phone','Territory','Status','Training','Jobs','Approved','Actions'].map(h => (
+                    <tr>{['Name','Email','Phone','Territory','Status','Training','Jobs','Approved','POV','Actions'].map(h => (
                       <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}</tr>
                   </thead>
                   <tbody>
-                    {!helpers.length && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No helpers yet. Send invites to get started.</td></tr>}
+                    {!helpers.length && <tr><td colSpan={10} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No helpers yet. Send invites to get started.</td></tr>}
                     {helpers.map(h => {
                       const helperCompletions = completions.filter((c: any) => c.helper_id === h.id)
                       const signedOff = helperCompletions.filter((c: any) => c.signed_off_at).length
@@ -626,6 +631,11 @@ export default function AdminPage() {
                           <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
                             <button style={{ ...btnGhost, background: h.approved ? S.accent : 'transparent', color: h.approved ? '#000' : S.muted, fontSize: 11, padding: '4px 10px' }} onClick={() => toggleApproval(h.id, h.approved)}>
                               {h.approved ? '✓ Approved' : 'Approve'}
+                            </button>
+                          </td>
+                          <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                            <button style={{ ...btnGhost, background: h.villages_realty_approved ? '#b06eff' : 'transparent', color: h.villages_realty_approved ? '#fff' : S.muted, fontSize: 11, padding: '4px 10px', borderColor: h.villages_realty_approved ? '#b06eff' : S.border }} onClick={() => togglePovApproval(h.id, h.villages_realty_approved)}>
+                              {h.villages_realty_approved ? '✓ Granted' : 'Grant'}
                             </button>
                           </td>
                           <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><button style={btnDanger} onClick={() => deleteHelper(h.id)}>✕</button></td>
