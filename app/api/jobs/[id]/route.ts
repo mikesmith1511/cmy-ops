@@ -23,9 +23,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json(data)
     }
 
-    // Mark installed
+    // Mark installed - REQUIRES a photo to be uploaded first
     if (body.action === 'installed') {
       if (job.helper_id !== token.id) return NextResponse.json({ error: 'Not your job' }, { status: 403 })
+      if (!job.photo_url) {
+        return NextResponse.json({
+          error: 'Install photo required before marking installed.'
+        }, { status: 400 })
+      }
       const { data, error } = await db.from('jobs').update({ status: 'installed' }).eq('id', id).select().single()
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       return NextResponse.json(data)
