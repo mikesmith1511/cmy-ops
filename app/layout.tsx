@@ -8,16 +8,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
         <style>{`
-          /* Fix native date picker calendar icon visibility on dark theme */
+          /* Date picker icon - white, double size, fully visible on dark theme */
           input[type="date"]::-webkit-calendar-picker-indicator {
-            filter: invert(0.8);
+            filter: invert(1) brightness(2);
             cursor: pointer;
-            opacity: 0.7;
+            opacity: 1;
+            width: 24px;
+            height: 24px;
+            padding: 2px;
           }
           input[type="date"]::-webkit-calendar-picker-indicator:hover {
-            opacity: 1;
+            opacity: 0.8;
           }
-          /* Make the entire date input clickable to open the picker */
           input[type="date"] {
             cursor: pointer;
             color-scheme: dark;
