@@ -41,7 +41,7 @@ export default function HelperPage() {
 
   useEffect(() => {
     api('/api/auth/me').then(d => {
-      if (d.role === 'helper') { setHelper({ id: d.id, name: d.name, email: d.email }); loadPortal(d.id) }
+      if (d.role === 'helper') { setHelper({ id: d.id, name: d.name, email: d.email, approved: d.approved, territory: d.territory, pay_override: d.pay_override }); loadPortal(d.id) }
     }).finally(() => setChecking(false))
   }, [])
 
@@ -196,8 +196,29 @@ export default function HelperPage() {
 
   // Portal (logged in)
   const myCompleted = jobs.filter(j => j.status === 'complete').length
-  const rate = helper?.pay_override || 40
-  const estPay = myCompleted * rate
+
+  // Est. Pay = sum of (drop+pickup rates) for current-month jobs I've claimed/installed/completed
+  // Villages pay scale ($20 drop + $20 pickup = $40 per job): jobs where type='pov' OR address contains
+  //   The Villages / Middleton / Lady Lake
+  // Standard pay scale ($20 drop + $10 pickup = $30 per job): everything else
+  // pay_override on helper record overrides the per-job calc (legacy field)
+  const _now = new Date()
+  const _thisMonth = _now.getMonth()
+  const _thisYear = _now.getFullYear()
+  const _isVillagesPay = (j: any) => {
+    if (j.type === 'pov') return true
+    const addr = (j.address || '').toLowerCase()
+    return addr.includes('the villages') || addr.includes('middleton') || addr.includes('lady lake')
+  }
+  const estPay = helper?.pay_override
+    ? jobs.filter(j => j.status === 'complete').length * helper.pay_override
+    : jobs
+        .filter(j => {
+          if (!j.event_date) return false
+          const d = new Date(j.event_date)
+          return d.getMonth() === _thisMonth && d.getFullYear() === _thisYear
+        })
+        .reduce((sum, j) => sum + (_isVillagesPay(j) ? 40 : 30), 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
