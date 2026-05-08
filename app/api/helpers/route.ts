@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase()
   const { data, error } = await db
     .from('helpers')
-    .select('id, name, email, phone, territory, approved, pay_override, jobs_done, invite_code, created_at, updated_at')
+    .select('id, name, email, phone, territory, approved, villages_realty_approved, pay_override, jobs_done, invite_code, created_at, updated_at')
     .order('created_at', { ascending: true })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data)
