@@ -19,12 +19,25 @@ export async function GET(req: NextRequest) {
   if (token.role === 'helper') {
     const type = searchParams.get('type')
     if (type === 'available') {
-      query = db.from('jobs')
+      // Look up the helper's POV access flag
+      const { data: helperRow } = await db
+        .from('helpers')
+        .select('villages_realty_approved')
+        .eq('id', token.id)
+        .single()
+      const povApproved = !!helperRow?.villages_realty_approved
+
+      let availQuery = db.from('jobs')
         .select('*')
         .eq('status', 'pending')
         .is('helper_id', null)
-        .neq('type', 'pov')
         .order('event_date', { ascending: true })
+
+      // Hide POV jobs unless this helper has been approved
+      if (!povApproved) {
+        availQuery = availQuery.neq('type', 'pov')
+      }
+      query = availQuery
     } else {
       query = db.from('jobs')
         .select('*')
