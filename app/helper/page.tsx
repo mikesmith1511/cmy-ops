@@ -15,10 +15,12 @@ function api(path: string, opts: any = {}) {
 }
 
 // Helper: detect pay scale from job
+// WW territory = $20/$20 (Wildwood franchise covers Villages distance)
+// TV/CL territory = $20/$10 standard
+// POV jobs are always WW so always $20/$20
 function isVillagesPay(j: any): boolean {
   if (j.type === 'pov') return true
-  const addr = (j.address || '').toLowerCase()
-  return addr.includes('the villages') || addr.includes('middleton') || addr.includes('lady lake')
+  return (j.territory || '').toUpperCase() === 'WW'
 }
 
 // Helper: compute pay for a single job (drop + pickup combined, full job)
@@ -125,7 +127,7 @@ export default function HelperPage() {
   useEffect(() => {
     api('/api/auth/me').then(d => {
       if (d.role === 'helper') {
-        setHelper({ id: d.id, name: d.name, email: d.email, approved: d.approved, territory: d.territory, pay_override: d.pay_override })
+        setHelper({ id: d.id, name: d.name, email: d.email, approved: d.approved, territory: d.territory, pay_override: d.pay_override, villages_realty_approved: d.villages_realty_approved })
         loadPortal(d.id)
       }
     }).finally(() => setChecking(false))
@@ -569,6 +571,7 @@ export default function HelperPage() {
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Available Jobs</h2>
             {!helper?.approved && <div style={{ background: S.accent + '12', border: `1px solid ${S.accent}44`, color: S.accent, padding: '12px 16px', borderRadius: 6, fontSize: 13, marginBottom: 16 }}>Your account is pending admin approval. Browse jobs now — you'll be able to claim once approved.</div>}
+            {helper?.approved && helper?.villages_realty_approved && <div style={{ background: '#b06eff' + '12', border: `1px solid #b06eff44`, color: '#b06eff', padding: '10px 14px', borderRadius: 6, fontSize: 12, marginBottom: 16, fontFamily: 'DM Mono, monospace' }}>✓ Villages Realty access granted — POV jobs are visible below.</div>}
 
             {/* Filter bar */}
             <div style={{ ...card, padding: 16, display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
