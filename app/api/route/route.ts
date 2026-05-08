@@ -142,33 +142,25 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // OPTIMIZATION: call Google Directions API for each segment
+  // OPTIMIZATION: determine optimal order within each segment, then make ONE
+  // final Directions API call with all stops in our chosen order so EVERY leg
+  // gets measured (including the handoff between drops and pickups).
   let totalMiles = 0
   let optimizedDrops: any[] = []
   let optimizedPickups: any[] = []
   let segmentMessages: string[] = []
 
-  // --- DROPS SEGMENT (origin = office, destination = last drop) ---
+  // --- STEP 1: Determine optimal DROP order ---
   if (drops.length > 0) {
     if (drops.length === 1) {
-      // Single stop - no optimization needed, just compute distance
       optimizedDrops = drops.map((j: any) => ({ ...j, order: 1, segment: 'drop' as const }))
-      const dist = await fetchSingleDistance(HOME_OFFICE, drops[0].address, apiKey)
-      if (dist !== null) totalMiles += dist
     } else {
-      // Multi-stop: office -> waypoints (optimized) -> last drop as destination
-      // Trick: pick last drop as destination, optimize the rest as waypoints
-      // Better: use ALL drops as waypoints, destination = last drop returned by API
-      // Cleanest: origin = office, last point = office (round trip), then drop the return leg
-      // Actually simplest: origin = office, destination = last drop (no return leg, optimize_waypoints)
-      // For the cleanest result, we ask Google to optimize all of them and just truncate the route at the last drop
+      // Use Directions API to optimize: origin=office, destination=last drop, others as waypoints
+      // We don't use the totalMiles from this call - just the order
       const result = await callDirectionsAPI(HOME_OFFICE, drops[drops.length - 1].address, drops.slice(0, -1).map((j: any) => j.address), apiKey)
       if (result) {
-        // Result waypoint_order is in terms of the slice we sent (drops.slice(0,-1))
-        // Final order = optimized waypoints + the destination (last drop)
         const orderedSlice = result.waypoint_order.map((idx: number) => drops[idx])
         optimizedDrops = [...orderedSlice, drops[drops.length - 1]].map((j: any, i: number) => ({ ...j, order: i + 1, segment: 'drop' as const }))
-        totalMiles += result.totalMiles
       } else {
         optimizedDrops = drops.map((j: any, i: number) => ({ ...j, order: i + 1, segment: 'drop' as const }))
         segmentMessages.push('Drop optimization unavailable; using original order.')
@@ -176,17 +168,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // --- PICKUPS SEGMENT (origin = furthest pickup, destination = office) ---
+  // --- STEP 2: Determine optimal PICKUP order (furthest first, then optimized back) ---
   if (pickups.length > 0) {
-    // For pickups: identify the FURTHEST pickup from the office, route from there back to office.
-    // We do this by getting distances from office to each pickup, picking the max, then routing
-    // that max as origin and remaining as waypoints back to office.
     if (pickups.length === 1) {
       optimizedPickups = pickups.map((j: any) => ({ ...j, order: drops.length + 1, segment: 'pickup' as const }))
-      const dist = await fetchSingleDistance(pickups[0].address, HOME_OFFICE, apiKey)
-      if (dist !== null) totalMiles += dist
     } else {
-      // Find furthest pickup
+      // Find furthest pickup from office
       const distances: number[] = []
       for (const p of pickups) {
         const d = await fetchSingleDistance(HOME_OFFICE, p.address, apiKey)
@@ -196,19 +183,26 @@ export async function POST(req: NextRequest) {
       const furthest = pickups[furthestIdx]
       const remaining = pickups.filter((_p: any, i: number) => i !== furthestIdx)
 
-      // Route from furthest -> remaining (waypoints) -> office (destination)
+      // Optimize: furthest -> remaining waypoints -> office
       const result = await callDirectionsAPI(furthest.address, HOME_OFFICE, remaining.map((j: any) => j.address), apiKey)
       if (result) {
         const orderedRemaining = result.waypoint_order.map((idx: number) => remaining[idx])
         optimizedPickups = [furthest, ...orderedRemaining].map((j: any, i: number) => ({
           ...j, order: drops.length + i + 1, segment: 'pickup' as const
         }))
-        totalMiles += result.totalMiles
       } else {
         optimizedPickups = pickups.map((j: any, i: number) => ({ ...j, order: drops.length + i + 1, segment: 'pickup' as const }))
         segmentMessages.push('Pickup optimization unavailable; using original order.')
       }
     }
+  }
+
+  // --- STEP 3: Now compute TOTAL mileage with all legs in the determined order ---
+  // This call ensures every transition (office->drop1, drop->drop, drop->pickup handoff,
+  // pickup->pickup, pickup->office) is captured.
+  totalMiles = await computeTotalRouteMiles(routeType, optimizedDrops, optimizedPickups, apiKey)
+  if (totalMiles === 0 && (optimizedDrops.length > 0 || optimizedPickups.length > 0)) {
+    segmentMessages.push('Total mileage calculation unavailable.')
   }
 
   // Build the final maps URL
@@ -252,6 +246,60 @@ function buildMapsUrl(routeType: string, drops: any[], pickups: any[]): string {
   const dropStops = drops.map((j: any) => enc(j.address)).join('/')
   const pickupStops = pickups.map((j: any) => enc(j.address)).join('/')
   return `https://www.google.com/maps/dir/${office}/${dropStops}/${pickupStops}/${office}`
+}
+
+// =============================================================
+// Helper: compute total miles for the full ordered route, including
+// office endpoints and the drop->pickup handoff. Uses optimize:false
+// so it respects the order we already determined.
+// =============================================================
+async function computeTotalRouteMiles(
+  routeType: string,
+  drops: any[],
+  pickups: any[],
+  apiKey: string
+): Promise<number> {
+  let origin: string, destination: string, waypoints: string[]
+
+  if (routeType === 'drops-only') {
+    if (drops.length === 0) return 0
+    origin = HOME_OFFICE
+    destination = drops[drops.length - 1].address
+    waypoints = drops.slice(0, -1).map((j: any) => j.address)
+  } else if (routeType === 'pickups-only') {
+    if (pickups.length === 0) return 0
+    origin = pickups[0].address // furthest first
+    destination = HOME_OFFICE
+    waypoints = pickups.slice(1).map((j: any) => j.address)
+  } else {
+    // mixed: office -> drops -> pickups -> office
+    origin = HOME_OFFICE
+    destination = HOME_OFFICE
+    waypoints = [...drops.map((j: any) => j.address), ...pickups.map((j: any) => j.address)]
+  }
+
+  // Single segment with no intermediate waypoints
+  if (waypoints.length === 0) {
+    const dist = await fetchSingleDistance(origin, destination, apiKey)
+    return dist ?? 0
+  }
+
+  // Multi-stop with optimize:false (we already chose the order)
+  const o = encodeURIComponent(origin)
+  const d = encodeURIComponent(destination)
+  const wp = waypoints.map(encodeURIComponent).join('|')
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${o}&destination=${d}&waypoints=${wp}&key=${apiKey}`
+
+  try {
+    const resp = await fetch(url)
+    const data = await resp.json()
+    if (data.status !== 'OK' || !data.routes?.[0]) return 0
+    let totalMeters = 0
+    for (const leg of data.routes[0].legs || []) totalMeters += leg.distance?.value || 0
+    return totalMeters / 1609.344
+  } catch (e) {
+    return 0
+  }
 }
 
 // =============================================================
