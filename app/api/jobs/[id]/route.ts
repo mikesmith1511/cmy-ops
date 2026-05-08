@@ -14,10 +14,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { data: job } = await db.from('jobs').select('*').eq('id', id).single()
     if (!job) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-    // Claim: job must be unclaimed
+    // Claim: job must be unclaimed; POV jobs require villages_realty_approved
     if (body.action === 'claim') {
       if (job.helper_id) return NextResponse.json({ error: 'Job already claimed' }, { status: 409 })
-      if (job.type === 'pov') return NextResponse.json({ error: 'Cannot claim POV jobs' }, { status: 403 })
+      if (job.type === 'pov') {
+        const { data: helperRow } = await db
+          .from('helpers')
+          .select('villages_realty_approved')
+          .eq('id', token.id)
+          .single()
+        if (!helperRow?.villages_realty_approved) {
+          return NextResponse.json({
+            error: 'POV jobs require Villages Realty approval. Contact admin.'
+          }, { status: 403 })
+        }
+      }
       const { data, error } = await db.from('jobs').update({ helper_id: token.id, status: 'claimed' }).eq('id', id).select().single()
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
       return NextResponse.json(data)
