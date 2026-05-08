@@ -32,6 +32,16 @@ export default function AdminPage() {
   const [modal, setModal] = useState('')
   const [inviteResult, setInviteResult] = useState<any>(null)
 
+  // Jobs filter state (multi-criteria filter bar on Jobs tab)
+  const [fSetupFrom, setFSetupFrom] = useState('')
+  const [fSetupTo, setFSetupTo] = useState('')
+  const [fEventFrom, setFEventFrom] = useState('')
+  const [fEventTo, setFEventTo] = useState('')
+  const [fTerritories, setFTerritories] = useState<string[]>([])
+  const [fTypes, setFTypes] = useState<string[]>([])
+  const [fStatuses, setFStatuses] = useState<string[]>([])
+  const [fHelpers, setFHelpers] = useState<string[]>([])
+
   // Check session
   useEffect(() => {
     api('/api/auth/me').then(d => {
@@ -164,7 +174,76 @@ export default function AdminPage() {
   }
 
   // ── FILTERED JOBS ──
-  const filteredJobs = jobs.filter(j => territory === 'ALL' || j.territory === territory)
+  // Combines header territory toggle (WW/TV/CL/ALL) with Jobs-tab-local
+  // multi-criteria filters (date ranges, multi-select chips, helper).
+  const filteredJobs = jobs.filter(j => {
+    // Header territory toggle
+    if (territory !== 'ALL' && j.territory !== territory) return false
+    // Setup date range
+    if (fSetupFrom && (!j.setup_date || j.setup_date < fSetupFrom)) return false
+    if (fSetupTo && (!j.setup_date || j.setup_date > fSetupTo)) return false
+    // Event date range
+    if (fEventFrom && (!j.event_date || j.event_date < fEventFrom)) return false
+    if (fEventTo && (!j.event_date || j.event_date > fEventTo)) return false
+    // Territory multi-select
+    if (fTerritories.length > 0 && !fTerritories.includes(j.territory || 'UK')) return false
+    // Type multi-select
+    if (fTypes.length > 0 && !fTypes.includes(j.type || 'standard')) return false
+    // Status multi-select
+    if (fStatuses.length > 0 && !fStatuses.includes(j.status || 'pending')) return false
+    // Helper multi-select ('' = unassigned)
+    if (fHelpers.length > 0) {
+      const hid = j.helper_id ? String(j.helper_id) : ''
+      if (!fHelpers.includes(hid)) return false
+    }
+    return true
+  })
+
+  // Count active filter groups (for the badge on the header)
+  const activeFilterCount =
+    (fSetupFrom || fSetupTo ? 1 : 0) +
+    (fEventFrom || fEventTo ? 1 : 0) +
+    (fTerritories.length > 0 ? 1 : 0) +
+    (fTypes.length > 0 ? 1 : 0) +
+    (fStatuses.length > 0 ? 1 : 0) +
+    (fHelpers.length > 0 ? 1 : 0)
+
+  // Toggle helper for multi-select chips
+  function toggleInArray(arr: string[], setArr: (a: string[]) => void, val: string) {
+    if (arr.includes(val)) setArr(arr.filter(x => x !== val))
+    else setArr([...arr, val])
+  }
+
+  function clearAllFilters() {
+    setFSetupFrom(''); setFSetupTo('')
+    setFEventFrom(''); setFEventTo('')
+    setFTerritories([]); setFTypes([]); setFStatuses([]); setFHelpers([])
+  }
+
+  // Date preset handlers (operate on Event Date range)
+  function applyDatePreset(preset: string) {
+    const today = new Date()
+    const ymd = (d: Date) => d.toISOString().substring(0, 10)
+    if (preset === 'today') {
+      const t = ymd(today)
+      setFEventFrom(t); setFEventTo(t)
+    } else if (preset === 'thisWeek') {
+      const start = new Date(today); start.setDate(today.getDate() - today.getDay())
+      const end = new Date(start); end.setDate(start.getDate() + 6)
+      setFEventFrom(ymd(start)); setFEventTo(ymd(end))
+    } else if (preset === 'thisMonth') {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1)
+      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+      setFEventFrom(ymd(start)); setFEventTo(ymd(end))
+    } else if (preset === 'past') {
+      const yest = new Date(today); yest.setDate(today.getDate() - 1)
+      setFEventFrom(''); setFEventTo(ymd(yest))
+    } else if (preset === 'future') {
+      setFEventFrom(ymd(today)); setFEventTo('')
+    } else if (preset === 'all') {
+      setFEventFrom(''); setFEventTo('')
+    }
+  }
 
   // ── CALENDAR ──
   function renderCalendar() {
@@ -293,7 +372,7 @@ export default function AdminPage() {
                 <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Upcoming Jobs (7 Days)</div>
                 {(() => {
                   const now = new Date()
-                  const upcoming = filteredJobs.filter(j => { const d = new Date(j.event_date); const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7 && j.status !== 'complete' && j.status !== 'cancelled' }).sort((a, b) => a.event_date < b.event_date ? -1 : 1)
+                  const upcoming = filteredJobs.filter(j => { const d = new Date(j.event_date); const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7 && j.status !== 'complete' }).sort((a, b) => a.event_date < b.event_date ? -1 : 1)
                   if (!upcoming.length) return <div style={{ color: S.muted, fontSize: 13 }}>No upcoming jobs.</div>
                   return upcoming.map(j => (
                     <div key={j.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${S.border}` }}>
@@ -332,9 +411,93 @@ export default function AdminPage() {
         {tab === 'jobs' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Job Board</h2>
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>
+                Job Board
+                {activeFilterCount > 0 && (
+                  <span style={{ marginLeft: 12, fontSize: 12, fontFamily: 'DM Mono, monospace', background: S.accent, color: '#000', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                    {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''}
+                  </span>
+                )}
+              </h2>
               <button style={btn} onClick={() => setModal('addJob')}>+ Add Job</button>
             </div>
+
+            {/* FILTER BAR */}
+            <div style={{ ...card, padding: 16 }}>
+              {/* Row 1: Date presets + clear */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 4 }}>Quick:</span>
+                {[['today','Today'],['thisWeek','This Week'],['thisMonth','This Month'],['past','Past'],['future','Future'],['all','All Dates']].map(([key, label]) => (
+                  <button key={key} onClick={() => applyDatePreset(key)} style={{ background: 'transparent', color: S.muted, border: `1px solid ${S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', cursor: 'pointer' }}>{label}</button>
+                ))}
+                {activeFilterCount > 0 && (
+                  <button onClick={clearAllFilters} style={{ marginLeft: 'auto', background: 'transparent', color: S.red, border: `1px solid ${S.red}44`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', cursor: 'pointer' }}>✕ Clear All</button>
+                )}
+              </div>
+
+              {/* Row 2: Date range pickers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
+                {[['Setup From', fSetupFrom, setFSetupFrom],['Setup To', fSetupTo, setFSetupTo],['Event From', fEventFrom, setFEventFrom],['Event To', fEventTo, setFEventTo]].map(([label, val, set]: any) => (
+                  <div key={label}>
+                    <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</label>
+                    <input style={{ width: '100%', background: S.bg, border: `1px solid ${S.border}`, borderRadius: 4, padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: 'DM Mono, monospace', outline: 'none', boxSizing: 'border-box' as const }} type="date" value={val} onChange={(e: any) => set(e.target.value)} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Row 3: Territory + Type chips */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Territory</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {['WW','TV','CL','UK'].map(t => {
+                      const active = fTerritories.includes(t)
+                      return <button key={t} onClick={() => toggleInArray(fTerritories, setFTerritories, t)} style={{ background: active ? S.accent : 'transparent', color: active ? '#000' : S.muted, border: `1px solid ${active ? S.accent : S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: active ? 700 : 400, cursor: 'pointer' }}>{t}</button>
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Type</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {['standard','pov'].map(t => {
+                      const active = fTypes.includes(t)
+                      return <button key={t} onClick={() => toggleInArray(fTypes, setFTypes, t)} style={{ background: active ? S.accent : 'transparent', color: active ? '#000' : S.muted, border: `1px solid ${active ? S.accent : S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: active ? 700 : 400, cursor: 'pointer' }}>{t}</button>
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 4: Status + Helper chips */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Status</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {['pending','claimed','installed','complete','cancelled'].map(s => {
+                      const active = fStatuses.includes(s)
+                      return <button key={s} onClick={() => toggleInArray(fStatuses, setFStatuses, s)} style={{ background: active ? S.accent : 'transparent', color: active ? '#000' : S.muted, border: `1px solid ${active ? S.accent : S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: active ? 700 : 400, cursor: 'pointer' }}>{s}</button>
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Helper</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => toggleInArray(fHelpers, setFHelpers, '')} style={{ background: fHelpers.includes('') ? S.accent : 'transparent', color: fHelpers.includes('') ? '#000' : S.muted, border: `1px solid ${fHelpers.includes('') ? S.accent : S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: fHelpers.includes('') ? 700 : 400, cursor: 'pointer' }}>Unassigned</button>
+                    {helpers.map(h => {
+                      const v = String(h.id)
+                      const active = fHelpers.includes(v)
+                      return <button key={h.id} onClick={() => toggleInArray(fHelpers, setFHelpers, v)} style={{ background: active ? S.accent : 'transparent', color: active ? '#000' : S.muted, border: `1px solid ${active ? S.accent : S.border}`, borderRadius: 4, padding: '4px 10px', fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: active ? 700 : 400, cursor: 'pointer' }}>{h.name}</button>
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* RESULT COUNTER */}
+            <div style={{ fontSize: 12, color: S.muted, marginBottom: 12, fontFamily: 'DM Mono, monospace' }}>
+              Showing {filteredJobs.length} of {jobs.length} jobs
+            </div>
+
+            {/* TABLE */}
             <div style={card}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -345,7 +508,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {filteredJobs.length === 0 && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs loaded.</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
                     )}
                     {filteredJobs.sort((a,b) => (a.event_date||'') < (b.event_date||'') ? -1 : 1).map(j => (
                       <tr key={j.id}>
@@ -357,7 +520,7 @@ export default function AdminPage() {
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={j.type} /></td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
                           <select style={{ background: S.bg, border: `1px solid ${S.border}`, color: S.text, padding: '4px 8px', fontSize: 11, borderRadius: 4 }} value={j.status} onChange={e => updateJobStatus(j.id, e.target.value)}>
-                            {['pending','claimed','installed','complete'].map(s => <option key={s} value={s}>{s}</option>)}
+                            {['pending','claimed','installed','complete','cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
                           </select>
                         </td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
