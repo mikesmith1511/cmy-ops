@@ -195,26 +195,83 @@ export default function HelperPage() {
     else showToast(res.error || 'Could not mark installed.')
   }
 
+  // Compress an image client-side: resize to max 1600px on long edge, re-encode as JPEG.
+  // Handles HEIC from iPhones by routing through canvas. Returns a Blob ready for upload.
+  async function compressImage(file: File): Promise<Blob> {
+    const MAX_DIM = 1600
+    const QUALITY = 0.82
+
+    // createImageBitmap handles HEIC on iOS Safari and is faster than <img>+onload.
+    let bitmap: ImageBitmap
+    try {
+      bitmap = await createImageBitmap(file)
+    } catch {
+      // Fallback for older browsers: use an <img> tag with a blob URL.
+      const url = URL.createObjectURL(file)
+      try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const i = new Image()
+          i.onload = () => resolve(i)
+          i.onerror = () => reject(new Error('Could not read image'))
+          i.src = url
+        })
+        bitmap = await createImageBitmap(img)
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    }
+
+    const { width, height } = bitmap
+    const scale = Math.min(1, MAX_DIM / Math.max(width, height))
+    const w = Math.round(width * scale)
+    const h = Math.round(height * scale)
+
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('Canvas not supported')
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close?.()
+
+    const blob: Blob | null = await new Promise(resolve =>
+      canvas.toBlob(resolve, 'image/jpeg', QUALITY)
+    )
+    if (!blob) throw new Error('Could not compress image')
+    return blob
+  }
+
   // Upload an install photo for a claimed job. Triggered by file input change.
   async function uploadPhoto(jobId: number, file: File) {
-    const fd = new FormData()
-    fd.append('photo', file)
     setUploadingJobId(jobId)
     try {
+      const compressed = await compressImage(file)
+      const fd = new FormData()
+      // Always send as .jpg since we re-encoded to JPEG.
+      fd.append('photo', compressed, `install-${jobId}.jpg`)
+
       const res = await fetch(`/api/jobs/${jobId}/photo`, {
         method: 'POST',
         credentials: 'include',
         body: fd,
       })
-      const data = await res.json()
-      if (data.ok) {
+
+      // Vercel returns HTML (not JSON) for 413/504/etc, so guard the parse.
+      let data: any = null
+      try { data = await res.json() } catch { /* non-JSON response */ }
+
+      if (res.ok && data?.ok) {
         showToast('Photo uploaded ✓')
         loadPortal()
+      } else if (res.status === 413) {
+        showToast('Photo too large. Try a smaller image.')
+      } else if (!res.ok) {
+        showToast(data?.error || `Upload failed (${res.status}).`)
       } else {
-        showToast(data.error || 'Upload failed.')
+        showToast(data?.error || 'Upload failed.')
       }
     } catch (e: any) {
-      showToast(e.message || 'Upload failed.')
+      showToast(e?.message || 'Upload failed.')
     }
     setUploadingJobId(null)
   }
