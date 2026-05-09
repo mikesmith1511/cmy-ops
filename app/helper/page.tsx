@@ -195,6 +195,12 @@ export default function HelperPage() {
     else showToast(res.error || 'Could not mark installed.')
   }
 
+  async function markPickedUp(jobId: number) {
+    const res = await api(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify({ action: 'picked_up' }) })
+    if (res.id) { showToast('Marked as picked up ✓'); loadPortal() }
+    else showToast(res.error || 'Could not mark picked up.')
+  }
+
   // Compress an image client-side: resize to max 1600px on long edge, re-encode as JPEG.
   // Handles HEIC from iPhones by routing through canvas. Returns a Blob ready for upload.
   async function compressImage(file: File): Promise<Blob> {
@@ -555,12 +561,26 @@ export default function HelperPage() {
                     <div style={{ fontWeight: 600, marginBottom: 2 }}>{j.address}</div>
                     <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>Event: {j.event_date || '—'} &nbsp;·&nbsp; Setup: {j.setup_date || '—'} &nbsp;·&nbsp; ${jobPay(j, helper?.pay_override)}</div>
                   </div>
-                  <Badge t={j.status} />
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 4, background: j.kind === 'pick' ? S.orange + '22' : S.blue + '22', color: j.kind === 'pick' ? S.orange : S.blue, border: `1px solid ${j.kind === 'pick' ? S.orange : S.blue}55` }}>
+                      {j.kind === 'pick' ? 'PICK' : 'DROP'}
+                    </span>
+                    <Badge t={j.status} />
+                  </div>
                 </div>
                 {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{j.details}</div>}
 
                 {/* Photo upload + Mark Installed (claimed status only) */}
-                {j.status === 'claimed' && (
+                {j.status === 'claimed' && j.kind === 'pick' && (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button style={{ ...btnSm, background: S.orange, color: '#000' }} onClick={() => markPickedUp(j.id)}>
+                      ✓ Mark Picked Up
+                    </button>
+                    <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>No photo required for picks</span>
+                  </div>
+                )}
+
+                {j.status === 'claimed' && j.kind !== 'pick' && (
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                     {!j.photo_url && (
                       <>
