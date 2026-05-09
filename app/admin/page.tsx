@@ -510,18 +510,23 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr>{['Setup Date','Event Date','Address','Customer','Territory','Type','Status','Helper','Photo','Actions'].map(h => (
+                    <tr>{['Setup Date','Event Date','Kind','Address','Customer','Territory','Type','Status','Helper','Photo','Actions'].map(h => (
                       <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
                     ))}</tr>
                   </thead>
                   <tbody>
                     {filteredJobs.length === 0 && (
-                      <tr><td colSpan={10} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
+                      <tr><td colSpan={11} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
                     )}
                     {filteredJobs.sort((a,b) => (a.event_date||'') < (b.event_date||'') ? -1 : 1).map(j => (
                       <tr key={j.id}>
                         <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{j.setup_date || '—'}</td>
                         <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{j.event_date || '—'}</td>
+                        <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                          <span style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 4, background: j.kind === 'pick' ? S.orange + '22' : S.blue + '22', color: j.kind === 'pick' ? S.orange : S.blue, border: `1px solid ${j.kind === 'pick' ? S.orange : S.blue}55` }}>
+                            {j.kind === 'pick' ? 'PICK' : 'DROP'}
+                          </span>
+                        </td>
                         <td style={{ padding: 12, fontSize: 12, maxWidth: 180, borderBottom: `1px solid ${S.border}` }}>{j.address}</td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>{j.customer || '—'}</td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={j.territory} /></td>
