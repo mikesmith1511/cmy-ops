@@ -148,7 +148,7 @@ export default function HelperPage() {
   async function doLogin() {
     setError('')
     const res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: loginEmail, password: loginPw, role: 'helper' }) })
-    if (res.ok) { setHelper(res.helper); loadPortal(res.helper.id) }
+    if (res.ok) { setHelper(res.helper); setScreen('landing'); setLoginEmail(''); setLoginPw(''); loadPortal(res.helper.id) }
     else setError('Email or password is incorrect.')
   }
 
@@ -404,7 +404,7 @@ export default function HelperPage() {
     </>
   )
 
-  if (screen === 'login') return authBox(
+  if (!helper && screen === 'login') return authBox(
     <>
       <div style={{ fontSize: 20, fontWeight: 700, textAlign: 'center', marginBottom: 24 }}>Sign In</div>
       <div style={{ marginBottom: 14 }}><label style={lbl}>Email</label><input style={input} type="email" value={loginEmail} onChange={e => setLoginEmail(e.target.value)} /></div>
@@ -415,7 +415,7 @@ export default function HelperPage() {
     </>
   )
 
-  if (screen === 'setup1') return authBox(
+  if (!helper && screen === 'setup1') return authBox(
     <>
       <div style={{ fontSize: 20, fontWeight: 700, textAlign: 'center', marginBottom: 8 }}>Create Your Account</div>
       <p style={{ fontSize: 13, color: S.muted, textAlign: 'center', marginBottom: 20 }}>Enter the invite code your admin sent you.</p>
@@ -426,7 +426,7 @@ export default function HelperPage() {
     </>
   )
 
-  if (screen === 'setup2') return authBox(
+  if (!helper && screen === 'setup2') return authBox(
     <>
       <div style={{ fontSize: 20, fontWeight: 700, textAlign: 'center', marginBottom: 8 }}>Your Details</div>
       <p style={{ fontSize: 13, color: S.muted, textAlign: 'center', marginBottom: 20 }}>Almost there. Fill in your info to finish setup.</p>
