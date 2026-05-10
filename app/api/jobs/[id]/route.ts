@@ -127,6 +127,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json(data)
     }
 
+    if (body.action === 'acknowledge_cancellation') {
+      if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const { data, error } = await db
+        .from('jobs')
+        .update({ cancellation_acknowledged_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('status', 'cancelled')
+        .select()
+        .single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json(data)
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
 
@@ -134,7 +147,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   // ADMIN ACTIONS - can update anything on either drop or pick
   // ===========================================================
   const updates: any = {}
-  if (body.status !== undefined) updates.status = body.status
+  if (body.status !== undefined) {
+    updates.status = body.status
+    // Status transitions involving 'cancelled' reset the ack timestamp:
+    //   -> cancelled: flag for admin acknowledgment
+    //   -> anything else from cancelled: row is no longer cancelled, ack is irrelevant
+    updates.cancellation_acknowledged_at = null
+  }
   if (body.helperId !== undefined) updates.helper_id = body.helperId || null
   if (body.setupDate !== undefined) updates.setup_date = body.setupDate
   if (body.eventDate !== undefined) updates.event_date = body.eventDate
