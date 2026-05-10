@@ -45,6 +45,26 @@ export default function AdminPage() {
   // Photo review modal state - holds the job whose photo is being reviewed
   const [photoModalJob, setPhotoModalJob] = useState<any>(null)
 
+  // ── INVENTORY STATE ──
+  const [invTab, setInvTab] = useState<'overview' | 'sets' | 'pieces' | 'audit'>('overview')
+  const [invSets, setInvSets] = useState<any[]>([])
+  const [invPieces, setInvPieces] = useState<any[]>([])
+  const [invEvents, setInvEvents] = useState<any[]>([])
+  const [showSetForm, setShowSetForm] = useState(false)
+  const [showBulkPieceForm, setShowBulkPieceForm] = useState(false)
+  const [setFilterCategory, setSetFilterCategory] = useState('')
+  const [setFilterTerritory, setSetFilterTerritory] = useState('')
+  const [setShowInactive, setSetShowInactive] = useState(false)
+  const [pieceFilterStatus, setPieceFilterStatus] = useState('')
+  const [pieceFilterSet, setPieceFilterSet] = useState('')
+  const [pieceFilterTerritory, setPieceFilterTerritory] = useState('')
+  const [auditFilterType, setAuditFilterType] = useState('')
+  const [auditFilterPiece, setAuditFilterPiece] = useState('')
+
+  // Printer + bulk-select state (Zebra Browser Print)
+  const [printerStatus, setPrinterStatus] = useState<'unknown' | 'ready' | 'offline'>('unknown')
+  const [selectedPieceIds, setSelectedPieceIds] = useState<number[]>([])
+
   // Check session
   useEffect(() => {
     api('/api/auth/me').then(d => {
@@ -177,6 +197,226 @@ export default function AdminPage() {
     showToast('Module deleted')
   }
 
+  // ── INVENTORY LOADERS ──
+  const loadInvSets = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (setFilterCategory) params.set('category', setFilterCategory)
+    if (setFilterTerritory) params.set('territory', setFilterTerritory)
+    if (setShowInactive) params.set('include_inactive', 'true')
+    const qs = params.toString()
+    const d = await api(`/api/inventory/sets${qs ? '?' + qs : ''}`)
+    if (d.sets) setInvSets(d.sets)
+  }, [setFilterCategory, setFilterTerritory, setShowInactive])
+
+  const loadInvPieces = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (pieceFilterStatus) params.set('status', pieceFilterStatus)
+    if (pieceFilterSet) params.set('set_id', pieceFilterSet)
+    if (pieceFilterTerritory) params.set('territory', pieceFilterTerritory)
+    params.set('limit', '500')
+    const d = await api(`/api/inventory/pieces?${params.toString()}`)
+    if (d.pieces) setInvPieces(d.pieces)
+  }, [pieceFilterStatus, pieceFilterSet, pieceFilterTerritory])
+
+  const loadInvEvents = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (auditFilterType) params.set('event_type', auditFilterType)
+    if (auditFilterPiece) params.set('piece_id', auditFilterPiece)
+    params.set('limit', '100')
+    const d = await api(`/api/inventory/events?${params.toString()}`)
+    if (d.events) setInvEvents(d.events)
+  }, [auditFilterType, auditFilterPiece])
+
+  // Auto-load inventory data when tab/filters change
+  useEffect(() => {
+    if (tab !== 'inventory' || !authed) return
+    if (invTab === 'overview' || invTab === 'sets' || invTab === 'pieces') loadInvSets()
+    if (invTab === 'overview' || invTab === 'pieces') loadInvPieces()
+    if (invTab === 'overview' || invTab === 'audit') loadInvEvents()
+  }, [tab, invTab, authed, loadInvSets, loadInvPieces, loadInvEvents])
+
+  // ── INVENTORY ACTIONS ──
+  async function createSet(e: any) {
+    e.preventDefault()
+    const fd = new FormData(e.target)
+    const body: any = {
+      name: fd.get('name'),
+      territory: fd.get('territory'),
+      category: fd.get('category') || null,
+      theme: fd.get('theme') || null,
+      description: fd.get('description') || null,
+    }
+    const occ = String(fd.get('occasion') || '').trim()
+    if (occ) body.occasion = occ.split(',').map(s => s.trim()).filter(Boolean)
+    const colors = String(fd.get('colors') || '').trim()
+    if (colors) body.colors = colors.split(',').map(s => s.trim()).filter(Boolean)
+
+    const res = await api('/api/inventory/sets', { method: 'POST', body: JSON.stringify(body) })
+    if (res.set) {
+      setShowSetForm(false)
+      e.target.reset()
+      loadInvSets()
+      showToast('Set created ✓')
+    } else {
+      showToast(res.error || 'Failed to create set')
+    }
+  }
+
+  async function deleteSet(setId: number, setName: string) {
+    if (!confirm(`Soft-delete "${setName}"? Pieces will be unlinked but preserved.`)) return
+    const res = await api(`/api/inventory/sets/${setId}`, { method: 'DELETE' })
+    if (res.ok) {
+      loadInvSets()
+      loadInvPieces()
+      showToast(`Set retired (${res.unlinked_pieces} pieces unlinked)`)
+    } else {
+      showToast(res.error || 'Delete failed')
+    }
+  }
+
+  async function createPiecesBulk(e: any) {
+    e.preventDefault()
+    const fd = new FormData(e.target)
+    const body: any = {
+      count: parseInt(fd.get('count') as string, 10),
+      barcode_prefix: fd.get('barcode_prefix'),
+      barcode_pad: parseInt(fd.get('barcode_pad') as string, 10) || 3,
+      label_template: fd.get('label_template') || null,
+      type: fd.get('type') || null,
+      territory: fd.get('territory'),
+    }
+    const setId = fd.get('set_id') as string
+    if (setId) body.set_id = parseInt(setId, 10)
+
+    const res = await api('/api/inventory/pieces/bulk', { method: 'POST', body: JSON.stringify(body) })
+    if (res.created) {
+      setShowBulkPieceForm(false)
+      e.target.reset()
+      loadInvPieces()
+      loadInvSets()
+      showToast(`${res.created} pieces created ✓`)
+    } else {
+      const msg = res.conflicting_barcodes
+        ? `Barcode conflicts: ${res.conflicting_barcodes.join(', ')}`
+        : (res.error || 'Bulk create failed')
+      showToast(msg)
+    }
+  }
+
+  async function updatePiece(pieceId: number, updates: any) {
+    const res = await api(`/api/inventory/pieces/${pieceId}`, { method: 'PATCH', body: JSON.stringify(updates) })
+    if (res.piece) {
+      setInvPieces(prev => prev.map(p => p.id === pieceId ? res.piece : p))
+      showToast('Piece updated ✓')
+    } else {
+      showToast(res.error || 'Update failed')
+    }
+  }
+
+  async function retirePiece(pieceId: number, barcode: string) {
+    if (!confirm(`Retire piece "${barcode}"? This removes it from active inventory.`)) return
+    const res = await api(`/api/inventory/pieces/${pieceId}`, { method: 'DELETE' })
+    if (res.piece) {
+      loadInvPieces()
+      showToast('Piece retired ✓')
+    } else {
+      showToast(res.error || 'Retire failed')
+    }
+  }
+
+  // ── ZEBRA BROWSER PRINT ──
+  // Talks to the Zebra Browser Print app running on the local machine.
+  // Localhost endpoint at http://localhost:9100/ accepts ZPL via POST.
+
+  async function checkPrinter() {
+    try {
+      const res = await fetch('http://localhost:9100/available', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data && data.printer) {
+          setPrinterStatus('ready')
+          return true
+        }
+      }
+      setPrinterStatus('offline')
+      return false
+    } catch {
+      setPrinterStatus('offline')
+      return false
+    }
+  }
+
+  async function sendZplToPrinter(zpl: string): Promise<boolean> {
+    try {
+      const res = await fetch('http://localhost:9100/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: { name: 'default' }, data: zpl }),
+        signal: AbortSignal.timeout(5000),
+      })
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  async function printPiece(pieceId: number, barcode: string) {
+    showToast(`Fetching label for ${barcode}...`)
+    try {
+      const res = await fetch(`/api/inventory/print/${pieceId}`, { credentials: 'include' })
+      if (!res.ok) { showToast('Failed to generate label'); return }
+      const zpl = await res.text()
+      const ok = await sendZplToPrinter(zpl)
+      if (ok) showToast(`✓ Printed ${barcode}`)
+      else { showToast('Printer offline — is Zebra Browser Print running?'); setPrinterStatus('offline') }
+    } catch (err) {
+      showToast('Print failed — see console')
+      console.error('Print error:', err)
+    }
+  }
+
+  async function printSelectedPieces() {
+    if (selectedPieceIds.length === 0) { showToast('Select pieces first'); return }
+    showToast(`Generating ${selectedPieceIds.length} labels...`)
+    try {
+      const res = await fetch('/api/inventory/print/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ piece_ids: selectedPieceIds }),
+      })
+      if (!res.ok) { showToast('Failed to generate batch'); return }
+      const zpl = await res.text()
+      const ok = await sendZplToPrinter(zpl)
+      if (ok) {
+        showToast(`✓ Sent ${selectedPieceIds.length} labels to printer`)
+        setSelectedPieceIds([])
+      } else {
+        showToast('Printer offline — is Zebra Browser Print running?')
+        setPrinterStatus('offline')
+      }
+    } catch (err) {
+      showToast('Bulk print failed')
+      console.error('Bulk print error:', err)
+    }
+  }
+
+  function togglePieceSelection(pieceId: number) {
+    setSelectedPieceIds(prev => prev.includes(pieceId) ? prev.filter(id => id !== pieceId) : [...prev, pieceId])
+  }
+  function selectAllVisiblePieces() { setSelectedPieceIds(invPieces.map(p => p.id)) }
+  function clearPieceSelection() { setSelectedPieceIds([]) }
+
+  // Auto-check printer status when pieces tab opens
+  useEffect(() => {
+    if (tab === 'inventory' && invTab === 'pieces') {
+      checkPrinter()
+    }
+  }, [tab, invTab])
+
   // ── 1099 CSV EXPORT ──
   function export1099() {
     if (!reports?.summary?.length) { showToast('No data to export'); return }
@@ -192,26 +432,16 @@ export default function AdminPage() {
   }
 
   // ── FILTERED JOBS ──
-  // Combines header territory toggle (WW/TV/CL/ALL) with Jobs-tab-local
-  // multi-criteria filters (date ranges, multi-select chips, helper).
   const filteredJobs = jobs.filter(j => {
-    // Header territory toggle
     if (territory !== 'ALL' && j.territory !== territory) return false
-    // Setup date range
     if (fSetupFrom && (!j.setup_date || j.setup_date < fSetupFrom)) return false
     if (fSetupTo && (!j.setup_date || j.setup_date > fSetupTo)) return false
-    // Event date range
     if (fEventFrom && (!j.event_date || j.event_date < fEventFrom)) return false
     if (fEventTo && (!j.event_date || j.event_date > fEventTo)) return false
-    // Territory multi-select
     if (fTerritories.length > 0 && !fTerritories.includes(j.territory || 'UK')) return false
-    // Type multi-select
     if (fTypes.length > 0 && !fTypes.includes(j.type || 'standard')) return false
-    // Status multi-select. EXCEPTION: unacknowledged cancellations always show
-    // until an admin acknowledges them, regardless of the status filter.
     const isUnackedCancellation = j.status === 'cancelled' && !j.cancellation_acknowledged_at
     if (!isUnackedCancellation && fStatuses.length > 0 && !fStatuses.includes(j.status || 'pending')) return false
-    // Helper multi-select ('' = unassigned)
     if (fHelpers.length > 0) {
       const hid = j.helper_id ? String(j.helper_id) : ''
       if (!fHelpers.includes(hid)) return false
@@ -219,7 +449,6 @@ export default function AdminPage() {
     return true
   })
 
-  // Count active filter groups (for the badge on the header)
   const activeFilterCount =
     (fSetupFrom || fSetupTo ? 1 : 0) +
     (fEventFrom || fEventTo ? 1 : 0) +
@@ -228,7 +457,6 @@ export default function AdminPage() {
     (fStatuses.length > 0 ? 1 : 0) +
     (fHelpers.length > 0 ? 1 : 0)
 
-  // Toggle helper for multi-select chips
   function toggleInArray(arr: string[], setArr: (a: string[]) => void, val: string) {
     if (arr.includes(val)) setArr(arr.filter(x => x !== val))
     else setArr([...arr, val])
@@ -240,14 +468,11 @@ export default function AdminPage() {
     setFTerritories([]); setFTypes([]); setFStatuses(['pending','claimed','installed']); setFHelpers([])
   }
 
-  // Date preset handlers (operate on Event Date range)
   function applyDatePreset(preset: string) {
     const today = new Date()
     const ymd = (d: Date) => d.toISOString().substring(0, 10)
-    if (preset === 'today') {
-      const t = ymd(today)
-      setFEventFrom(t); setFEventTo(t)
-    } else if (preset === 'thisWeek') {
+    if (preset === 'today') { const t = ymd(today); setFEventFrom(t); setFEventTo(t) }
+    else if (preset === 'thisWeek') {
       const start = new Date(today); start.setDate(today.getDate() - today.getDay())
       const end = new Date(start); end.setDate(start.getDate() + 6)
       setFEventFrom(ymd(start)); setFEventTo(ymd(end))
@@ -258,11 +483,8 @@ export default function AdminPage() {
     } else if (preset === 'past') {
       const yest = new Date(today); yest.setDate(today.getDate() - 1)
       setFEventFrom(''); setFEventTo(ymd(yest))
-    } else if (preset === 'future') {
-      setFEventFrom(ymd(today)); setFEventTo('')
-    } else if (preset === 'all') {
-      setFEventFrom(''); setFEventTo('')
-    }
+    } else if (preset === 'future') { setFEventFrom(ymd(today)); setFEventTo('') }
+    else if (preset === 'all') { setFEventFrom(''); setFEventTo('') }
   }
 
   // ── CALENDAR ──
@@ -359,7 +581,7 @@ export default function AdminPage() {
 
       {/* Nav */}
       <div style={{ background: S.surface, borderBottom: `1px solid ${S.border}`, display: 'flex', padding: '0 24px', overflowX: 'auto' }}>
-        {['dashboard','calendar','jobs','queue','helpers','training','reports','settings'].map(t => (
+        {['dashboard','calendar','jobs','queue','inventory','helpers','training','reports','settings'].map(t => (
           <div key={t} onClick={() => { setTab(t); if (t === 'reports') api('/api/reports').then(r => { if (r.summary) setReports(r) }) }} style={{ padding: '10px 18px', fontSize: 13, fontWeight: 500, color: tab === t ? S.accent : S.muted, cursor: 'pointer', borderBottom: `2px solid ${tab === t ? S.accent : 'transparent'}`, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{t}</div>
         ))}
       </div>
@@ -445,7 +667,6 @@ export default function AdminPage() {
 
             {/* FILTER BAR */}
             <div style={{ ...card, padding: 16 }}>
-              {/* Row 1: Date presets + clear */}
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
                 <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginRight: 4 }}>Quick:</span>
                 {[['today','Today'],['thisWeek','This Week'],['thisMonth','This Month'],['past','Past'],['future','Future'],['all','All Dates']].map(([key, label]) => (
@@ -456,7 +677,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* Row 2: Date range pickers */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
                 {[['Setup From', fSetupFrom, setFSetupFrom],['Setup To', fSetupTo, setFSetupTo],['Event From', fEventFrom, setFEventFrom],['Event To', fEventTo, setFEventTo]].map(([label, val, set]: any) => (
                   <div key={label}>
@@ -466,7 +686,6 @@ export default function AdminPage() {
                 ))}
               </div>
 
-              {/* Row 3: Territory + Type chips */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Territory</label>
@@ -488,7 +707,6 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Row 4: Status + Helper chips */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 6, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Status</label>
@@ -513,12 +731,10 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* RESULT COUNTER */}
             <div style={{ fontSize: 12, color: S.muted, marginBottom: 12, fontFamily: 'DM Mono, monospace' }}>
               Showing {filteredJobs.length} of {jobs.length} jobs
             </div>
 
-            {/* TABLE */}
             <div style={card}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -619,6 +835,378 @@ export default function AdminPage() {
               </div>
             ))}
             {!jobs.filter(j => j.type === 'custom').length && <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>No custom orders in queue.</div>}
+          </div>
+        )}
+
+        {/* INVENTORY */}
+        {tab === 'inventory' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Inventory</h2>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {(['overview','sets','pieces','audit'] as const).map(st => (
+                  <button key={st} onClick={() => setInvTab(st)}
+                    style={{ background: invTab === st ? S.accent : 'transparent', color: invTab === st ? '#000' : S.muted, border: `1px solid ${invTab === st ? S.accent : S.border}`, borderRadius: 4, padding: '6px 14px', fontSize: 12, fontFamily: 'DM Mono, monospace', fontWeight: invTab === st ? 700 : 400, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* OVERVIEW SUB-TAB */}
+            {invTab === 'overview' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+                  {[
+                    { label: 'Total Sets', value: invSets.filter(s => s.active).length, sub: `${invSets.filter(s => !s.active).length} retired` },
+                    { label: 'Total Pieces', value: invPieces.length, sub: 'all states' },
+                    { label: 'In Stock', value: invPieces.filter(p => p.status === 'in_stock').length, sub: 'available now' },
+                    { label: 'Checked Out', value: invPieces.filter(p => p.status === 'checked_out' || p.status === 'overdue').length, sub: invPieces.filter(p => p.status === 'overdue').length + ' overdue' },
+                    { label: 'Damaged', value: invPieces.filter(p => p.status === 'damaged').length, sub: 'need repair/retire' },
+                  ].map(s => (
+                    <div key={s.label} style={card}>
+                      <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{s.label}</div>
+                      <div style={{ fontSize: 32, fontWeight: 700, color: S.accent, fontFamily: 'DM Mono, monospace' }}>{s.value}</div>
+                      <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{s.sub}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={card}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Recent Activity</div>
+                    <button style={btnGhost} onClick={() => setInvTab('audit')}>View All →</button>
+                  </div>
+                  {invEvents.length === 0 ? (
+                    <div style={{ color: S.muted, fontSize: 13 }}>No activity yet.</div>
+                  ) : (
+                    invEvents.slice(0, 10).map(e => (
+                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${S.border}`, fontSize: 12 }}>
+                        <div>
+                          <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent, marginRight: 10 }}>{e.event_type}</span>
+                          <span style={{ color: S.muted }}>
+                            {e.piece_id ? `piece #${e.piece_id}` : ''}
+                            {e.set_id ? ` set #${e.set_id}` : ''}
+                            {e.helpers ? ` · ${e.helpers.name || e.helpers.email}` : ''}
+                          </span>
+                        </div>
+                        <span style={{ fontFamily: 'DM Mono, monospace', color: S.muted, fontSize: 11 }}>
+                          {new Date(e.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SETS SUB-TAB */}
+            {invTab === 'sets' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <input placeholder="Filter by category..." value={setFilterCategory} onChange={e => setSetFilterCategory(e.target.value)} style={{ ...input, width: 180, padding: '6px 10px', fontSize: 12 }} />
+                    <select value={setFilterTerritory} onChange={e => setSetFilterTerritory(e.target.value)} style={{ ...input, width: 140, padding: '6px 10px', fontSize: 12 }}>
+                      <option value="">All territories</option>
+                      <option value="WW">WW</option>
+                      <option value="TV">TV</option>
+                      <option value="CL">CL</option>
+                    </select>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: S.muted, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={setShowInactive} onChange={e => setSetShowInactive(e.target.checked)} />
+                      Show retired
+                    </label>
+                  </div>
+                  <button style={btn} onClick={() => setShowSetForm(s => !s)}>{showSetForm ? '✕ Cancel' : '+ Add Set'}</button>
+                </div>
+
+                {showSetForm && (
+                  <form onSubmit={createSet} style={{ ...card, borderColor: S.accent }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>New Set</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
+                      <div><label style={label}>Name *</label><input style={input} type="text" name="name" required placeholder="e.g. Pink Birthday Set" /></div>
+                      <div><label style={label}>Territory</label><select name="territory" style={input} defaultValue="WW"><option value="WW">Wildwood</option><option value="TV">Tavares</option><option value="CL">Clermont</option></select></div>
+                      <div><label style={label}>Category</label><input style={input} type="text" name="category" placeholder="birthday, graduation..." /></div>
+                      <div><label style={label}>Theme</label><input style={input} type="text" name="theme" placeholder="pink_floral, classic_blue..." /></div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                      <div><label style={label}>Occasion(s) — comma separated</label><input style={input} type="text" name="occasion" placeholder="birthday, milestone" /></div>
+                      <div><label style={label}>Colors — comma separated</label><input style={input} type="text" name="colors" placeholder="pink, gold, white" /></div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={label}>Description</label>
+                      <textarea name="description" style={{ ...input, height: 60 }} placeholder="Notes for AI recommendations and staff..." />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                      <button type="button" style={btnGhost} onClick={() => setShowSetForm(false)}>Cancel</button>
+                      <button type="submit" style={btn}>Create Set</button>
+                    </div>
+                  </form>
+                )}
+
+                <div style={card}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>{['Name','Territory','Category','Occasion','Colors','Pieces','Status','Actions'].map(h => (
+                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                        ))}</tr>
+                      </thead>
+                      <tbody>
+                        {invSets.length === 0 && (
+                          <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No sets yet. Click "Add Set" to create one.</td></tr>
+                        )}
+                        {invSets.map(s => (
+                          <tr key={s.id} style={{ opacity: s.active ? 1 : 0.5 }}>
+                            <td style={{ padding: 12, fontWeight: 600, borderBottom: `1px solid ${S.border}` }}>{s.name}</td>
+                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={s.territory} /></td>
+                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{s.category || '—'}</td>
+                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{(s.occasion || []).join(', ') || '—'}</td>
+                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{(s.colors || []).join(', ') || '—'}</td>
+                            <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', borderBottom: `1px solid ${S.border}` }}>{s.piece_count ?? 0}</td>
+                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                              <span style={{ fontSize: 11, color: s.active ? S.green : S.muted, fontFamily: 'DM Mono, monospace' }}>
+                                {s.active ? '● ACTIVE' : '○ RETIRED'}
+                              </span>
+                            </td>
+                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                {s.active && <button style={btnDanger} onClick={() => deleteSet(s.id, s.name)}>Retire</button>}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PIECES SUB-TAB */}
+            {invTab === 'pieces' && (
+              <div>
+                {/* PRINTER STATUS + BULK PRINT TOOLBAR */}
+                <div style={{ ...card, padding: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Printer:</span>
+                    <span style={{
+                      fontSize: 11, fontFamily: 'DM Mono, monospace', padding: '3px 8px', borderRadius: 3,
+                      background: printerStatus === 'ready' ? S.green + '22' : printerStatus === 'offline' ? S.red + '22' : S.muted + '22',
+                      color: printerStatus === 'ready' ? S.green : printerStatus === 'offline' ? S.red : S.muted,
+                      border: `1px solid ${printerStatus === 'ready' ? S.green : printerStatus === 'offline' ? S.red : S.muted}44`,
+                    }}>
+                      {printerStatus === 'ready' ? '● READY' : printerStatus === 'offline' ? '○ OFFLINE' : '… CHECKING'}
+                    </span>
+                    <button style={btnGhost} onClick={checkPrinter}>⟳ Recheck</button>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {selectedPieceIds.length > 0 && (
+                      <>
+                        <span style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>
+                          {selectedPieceIds.length} selected
+                        </span>
+                        <button style={btnGhost} onClick={clearPieceSelection}>Clear</button>
+                        <button style={{ ...btn, background: S.green }} onClick={printSelectedPieces} disabled={printerStatus !== 'ready'}>
+                          🖨 Print {selectedPieceIds.length}
+                        </button>
+                      </>
+                    )}
+                    {selectedPieceIds.length === 0 && invPieces.length > 0 && (
+                      <button style={btnGhost} onClick={selectAllVisiblePieces}>Select all visible</button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select value={pieceFilterStatus} onChange={e => setPieceFilterStatus(e.target.value)} style={{ ...input, width: 160, padding: '6px 10px', fontSize: 12 }}>
+                      <option value="">All statuses</option>
+                      <option value="in_stock">In Stock</option>
+                      <option value="scheduled">Scheduled</option>
+                      <option value="checked_out">Checked Out</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="damaged">Damaged</option>
+                      <option value="retired">Retired</option>
+                    </select>
+                    <select value={pieceFilterSet} onChange={e => setPieceFilterSet(e.target.value)} style={{ ...input, width: 200, padding: '6px 10px', fontSize: 12 }}>
+                      <option value="">All sets</option>
+                      <option value="null">Unassigned</option>
+                      {invSets.filter(s => s.active).map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                    <select value={pieceFilterTerritory} onChange={e => setPieceFilterTerritory(e.target.value)} style={{ ...input, width: 140, padding: '6px 10px', fontSize: 12 }}>
+                      <option value="">All territories</option>
+                      <option value="WW">WW</option>
+                      <option value="TV">TV</option>
+                      <option value="CL">CL</option>
+                    </select>
+                  </div>
+                  <button style={btn} onClick={() => setShowBulkPieceForm(s => !s)}>
+                    {showBulkPieceForm ? '✕ Cancel' : '+ Bulk Add'}
+                  </button>
+                </div>
+
+                {showBulkPieceForm && (
+                  <form onSubmit={createPiecesBulk} style={{ ...card, borderColor: S.accent }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Bulk Create Pieces</div>
+                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
+                      Generates N pieces with sequentially numbered barcodes.
+                      Example: prefix "HBD-PINK-" + count 12 + pad 3 → HBD-PINK-001 through HBD-PINK-012.
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
+                      <div><label style={label}>Count *</label><input style={input} type="number" name="count" min={1} max={200} required defaultValue="12" /></div>
+                      <div><label style={label}>Barcode Prefix *</label><input style={input} type="text" name="barcode_prefix" required placeholder="HBD-PINK-LG-" /></div>
+                      <div><label style={label}>Padding Digits</label><input style={input} type="number" name="barcode_pad" min={1} max={6} defaultValue="3" /></div>
+                      <div><label style={label}>Territory</label><select name="territory" style={input} defaultValue="WW"><option value="WW">Wildwood</option><option value="TV">Tavares</option><option value="CL">Clermont</option></select></div>
+                      <div><label style={label}>Type</label><input style={input} type="text" name="type" placeholder="letter, number, graphic..." /></div>
+                      <div>
+                        <label style={label}>Assign to Set (optional)</label>
+                        <select name="set_id" style={input} defaultValue="">
+                          <option value="">No set</option>
+                          {invSets.filter(s => s.active).map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={label}>Label Template (use {'{n}'} for the number)</label>
+                      <input style={input} type="text" name="label_template" placeholder="Pink HBD Letter {n}" />
+                    </div>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                      <button type="button" style={btnGhost} onClick={() => setShowBulkPieceForm(false)}>Cancel</button>
+                      <button type="submit" style={btn}>Create Pieces</button>
+                    </div>
+                  </form>
+                )}
+
+                <div style={{ fontSize: 12, color: S.muted, marginBottom: 12, fontFamily: 'DM Mono, monospace' }}>
+                  Showing {invPieces.length} pieces
+                </div>
+
+                <div style={card}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>{['☐','Barcode','Label','Type','Set','Territory','Status','Condition','Actions'].map(h => (
+                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                        ))}</tr>
+                      </thead>
+                      <tbody>
+                        {invPieces.length === 0 && (
+                          <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No pieces match the current filters.</td></tr>
+                        )}
+                        {invPieces.map(p => {
+                          const statusColor =
+                            p.status === 'in_stock' ? S.green :
+                            p.status === 'scheduled' ? S.blue :
+                            p.status === 'checked_out' ? S.accent :
+                            p.status === 'overdue' ? S.red :
+                            p.status === 'damaged' ? S.red :
+                            S.muted
+                          return (
+                            <tr key={p.id}>
+                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <input type="checkbox" checked={selectedPieceIds.includes(p.id)} onChange={() => togglePieceSelection(p.id)} style={{ cursor: 'pointer' }} />
+                              </td>
+                              <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{p.barcode}</td>
+                              <td style={{ padding: 12, fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{p.label || '—'}</td>
+                              <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{p.type || '—'}</td>
+                              <td style={{ padding: 12, fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <select value={p.set_id || ''} onChange={e => updatePiece(p.id, { set_id: e.target.value ? parseInt(e.target.value, 10) : null })} style={{ background: S.bg, border: `1px solid ${S.border}`, color: S.text, padding: '4px 8px', fontSize: 11, borderRadius: 4 }}>
+                                  <option value="">Unassigned</option>
+                                  {invSets.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                              </td>
+                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={p.territory} /></td>
+                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', padding: '2px 8px', borderRadius: 3, background: statusColor + '22', color: statusColor, border: `1px solid ${statusColor}44` }}>
+                                  {p.status}
+                                </span>
+                              </td>
+                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <select value={p.condition} onChange={e => updatePiece(p.id, { condition: e.target.value })} style={{ background: S.bg, border: `1px solid ${S.border}`, color: S.text, padding: '4px 8px', fontSize: 11, borderRadius: 4 }}>
+                                  {['good','worn','needs_repair','damaged'].map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </td>
+                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    style={{ ...btnGhost, fontSize: 11, padding: '4px 10px', opacity: printerStatus === 'ready' ? 1 : 0.5 }}
+                                    onClick={() => printPiece(p.id, p.barcode)}
+                                    disabled={printerStatus !== 'ready'}
+                                    title={printerStatus === 'ready' ? 'Print sticker' : 'Printer offline'}
+                                  >
+                                    🖨 Print
+                                  </button>
+                                  {p.status !== 'retired' && p.status !== 'checked_out' && p.status !== 'overdue' && (
+                                    <button style={btnDanger} onClick={() => retirePiece(p.id, p.barcode)}>Retire</button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* AUDIT SUB-TAB */}
+            {invTab === 'audit' && (
+              <div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <select value={auditFilterType} onChange={e => setAuditFilterType(e.target.value)} style={{ ...input, width: 200, padding: '6px 10px', fontSize: 12 }}>
+                    <option value="">All event types</option>
+                    {['created','scanned_out','scanned_in','reserved','unreserved','marked_damaged','marked_repaired','retired','state_change','note_added','set_assigned','set_unassigned','piece_missing'].map(t => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <input
+                    placeholder="Filter by piece ID..."
+                    value={auditFilterPiece}
+                    onChange={e => setAuditFilterPiece(e.target.value.replace(/[^0-9]/g, ''))}
+                    style={{ ...input, width: 160, padding: '6px 10px', fontSize: 12 }}
+                  />
+                </div>
+
+                <div style={card}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                      <thead>
+                        <tr>{['When','Event','Piece','Set','Job','Helper','State'].map(h => (
+                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
+                        ))}</tr>
+                      </thead>
+                      <tbody>
+                        {invEvents.length === 0 && (
+                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No events match the current filters.</td></tr>
+                        )}
+                        {invEvents.map(e => (
+                          <tr key={e.id}>
+                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.muted, borderBottom: `1px solid ${S.border}` }}>
+                              {new Date(e.created_at).toLocaleString()}
+                            </td>
+                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.accent, borderBottom: `1px solid ${S.border}` }}>{e.event_type}</td>
+                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.piece_id ? `#${e.piece_id}` : '—'}</td>
+                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.set_id ? `#${e.set_id}` : '—'}</td>
+                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.job_id ? `#${e.job_id}` : '—'}</td>
+                            <td style={{ padding: 10, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{e.helpers?.name || e.helpers?.email || '—'}</td>
+                            <td style={{ padding: 10, fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', borderBottom: `1px solid ${S.border}` }}>
+                              {e.from_state && e.to_state ? `${e.from_state} → ${e.to_state}` : (e.to_state || '—')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -791,8 +1379,17 @@ export default function AdminPage() {
               <div style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>Share this URL with helpers so they can create accounts and access their portal.</div>
             </div>
             <div style={card}>
-              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Admin Password</div>
-              <div style={{ fontSize: 13, color: S.muted }}>Admin password is managed via Vercel environment variable <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent }}>ADMIN_PASSWORD_HASH</span>. To change it, generate a new bcrypt hash and update the env var in your Vercel project settings.</div>
+              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Admin Accounts</div>
+              <div style={{ fontSize: 13, color: S.muted }}>
+                Admin and helper accounts are stored together in the <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent }}>helpers</span> table.
+                To promote a helper to admin, update their role via SQL:
+              </div>
+              <div style={{ background: S.bg, border: `1px solid ${S.border}`, borderRadius: 6, padding: 14, fontFamily: 'DM Mono, monospace', fontSize: 12, color: S.accent, marginTop: 10, overflowX: 'auto' }}>
+                UPDATE helpers SET role = 'admin' WHERE email = '...';
+              </div>
+              <div style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>
+                Password resets and account changes propagate at next login.
+              </div>
             </div>
             <div style={card}>
               <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Territory Zip Codes</div>
@@ -818,7 +1415,6 @@ export default function AdminPage() {
         <div onClick={e => { if (e.target === e.currentTarget) setModal('') }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: S.surface, border: `1px solid ${S.border}`, borderRadius: 10, padding: 28, width: 520, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto' }}>
 
-            {/* Add Job */}
             {modal === 'addJob' && (
               <form onSubmit={addJob}>
                 <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Add Job</div>
@@ -837,7 +1433,6 @@ export default function AdminPage() {
               </form>
             )}
 
-            {/* Invite Helper */}
             {modal === 'invite' && (
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Invite Helper</div>
@@ -866,7 +1461,6 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Add Module */}
             {modal === 'addModule' && (
               <form onSubmit={addModule}>
                 <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Add Training Module</div>
@@ -922,11 +1516,9 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: S.surface, border: `1px solid ${S.green}`, color: S.green, padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 500, zIndex: 999 }}>{toast}</div>
       )}
     </div>
   )
 }
-
