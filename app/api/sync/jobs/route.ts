@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
       const idsToCancel = cancelCandidates.map((r) => r.id)
       const { error: updErr } = await db
         .from('jobs')
-        .update({ status: 'cancelled', last_sync_at: now })
+        .update({ status: 'cancelled', cancellation_acknowledged_at: null, last_sync_at: now })
         .in('id', idsToCancel)
       if (updErr) {
         errors.push('Cancel sweep update failed: ' + updErr.message)
