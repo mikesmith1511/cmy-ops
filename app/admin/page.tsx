@@ -39,40 +39,11 @@ export default function AdminPage() {
   const [fEventTo, setFEventTo] = useState('')
   const [fTerritories, setFTerritories] = useState<string[]>([])
   const [fTypes, setFTypes] = useState<string[]>([])
-  const [fStatuses, setFStatuses] = useState<string[]>([])
+  const [fStatuses, setFStatuses] = useState<string[]>(['pending','claimed','installed'])
   const [fHelpers, setFHelpers] = useState<string[]>([])
 
   // Photo review modal state - holds the job whose photo is being reviewed
   const [photoModalJob, setPhotoModalJob] = useState<any>(null)
-
-  // ── INVENTORY STATE ──
-  const [invTab, setInvTab] = useState<'overview' | 'sets' | 'pieces' | 'audit'>('overview')
-  const [invSets, setInvSets] = useState<any[]>([])
-  const [invPieces, setInvPieces] = useState<any[]>([])
-  const [invEvents, setInvEvents] = useState<any[]>([])
-  const [invLoading, setInvLoading] = useState(false)
-
-  // Inline create-form expansion flags
-  const [showSetForm, setShowSetForm] = useState(false)
-  const [showBulkPieceForm, setShowBulkPieceForm] = useState(false)
-
-  // Sets list filters
-  const [setFilterCategory, setSetFilterCategory] = useState('')
-  const [setFilterTerritory, setSetFilterTerritory] = useState('')
-  const [setShowInactive, setSetShowInactive] = useState(false)
-
-  // Pieces list filters
-  const [pieceFilterStatus, setPieceFilterStatus] = useState('')
-  const [pieceFilterSet, setPieceFilterSet] = useState('')
-  const [pieceFilterTerritory, setPieceFilterTerritory] = useState('')
-
-  // Audit filters
-  const [auditFilterType, setAuditFilterType] = useState('')
-  const [auditFilterPiece, setAuditFilterPiece] = useState('')
-
-  // Edit-in-place state — holds id of row currently expanded for editing
-  const [editingSetId, setEditingSetId] = useState<number | null>(null)
-  const [editingPieceId, setEditingPieceId] = useState<number | null>(null)
 
   // Check session
   useEffect(() => {
@@ -124,6 +95,16 @@ export default function AdminPage() {
   async function updateJobStatus(id: number, status: string) {
     const res = await api(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
     if (res.id) setJobs(p => p.map(j => j.id === id ? res : j))
+  }
+
+  async function acknowledgeCancellation(id: number) {
+    const res = await api(`/api/jobs/${id}`, { method: 'PATCH', body: JSON.stringify({ action: 'acknowledge_cancellation' }) })
+    if (res.id) {
+      setJobs(p => p.map(j => j.id === id ? res : j))
+      showToast('Cancellation acknowledged')
+    } else {
+      showToast(res.error || 'Could not acknowledge.')
+    }
   }
 
   async function assignHelper(jobId: number, helperId: string) {
@@ -196,149 +177,7 @@ export default function AdminPage() {
     showToast('Module deleted')
   }
 
-  // ── INVENTORY LOADERS ──
-  const loadInvSets = useCallback(async () => {
-    const params = new URLSearchParams()
-    if (setFilterCategory) params.set('category', setFilterCategory)
-    if (setFilterTerritory) params.set('territory', setFilterTerritory)
-    if (setShowInactive) params.set('include_inactive', 'true')
-    const qs = params.toString()
-    const d = await api(`/api/inventory/sets${qs ? '?' + qs : ''}`)
-    if (d.sets) setInvSets(d.sets)
-  }, [setFilterCategory, setFilterTerritory, setShowInactive])
-
-  const loadInvPieces = useCallback(async () => {
-    const params = new URLSearchParams()
-    if (pieceFilterStatus) params.set('status', pieceFilterStatus)
-    if (pieceFilterSet) params.set('set_id', pieceFilterSet)
-    if (pieceFilterTerritory) params.set('territory', pieceFilterTerritory)
-    params.set('limit', '500')
-    const d = await api(`/api/inventory/pieces?${params.toString()}`)
-    if (d.pieces) setInvPieces(d.pieces)
-  }, [pieceFilterStatus, pieceFilterSet, pieceFilterTerritory])
-
-  const loadInvEvents = useCallback(async () => {
-    const params = new URLSearchParams()
-    if (auditFilterType) params.set('event_type', auditFilterType)
-    if (auditFilterPiece) params.set('piece_id', auditFilterPiece)
-    params.set('limit', '100')
-    const d = await api(`/api/inventory/events?${params.toString()}`)
-    if (d.events) setInvEvents(d.events)
-  }, [auditFilterType, auditFilterPiece])
-
-  // Auto-load inventory data when tab/filters change
-  useEffect(() => {
-    if (tab !== 'inventory' || !authed) return
-    setInvLoading(true)
-    const tasks = []
-    if (invTab === 'overview' || invTab === 'sets' || invTab === 'pieces') tasks.push(loadInvSets())
-    if (invTab === 'overview' || invTab === 'pieces') tasks.push(loadInvPieces())
-    if (invTab === 'overview' || invTab === 'audit') tasks.push(loadInvEvents())
-    Promise.all(tasks).finally(() => setInvLoading(false))
-  }, [tab, invTab, authed, loadInvSets, loadInvPieces, loadInvEvents])
-
-  // ── INVENTORY ACTIONS ──
-  async function createSet(e: any) {
-    e.preventDefault()
-    const fd = new FormData(e.target)
-    const body: any = {
-      name: fd.get('name'),
-      territory: fd.get('territory'),
-      category: fd.get('category') || null,
-      theme: fd.get('theme') || null,
-      description: fd.get('description') || null,
-    }
-    const occ = String(fd.get('occasion') || '').trim()
-    if (occ) body.occasion = occ.split(',').map(s => s.trim()).filter(Boolean)
-    const colors = String(fd.get('colors') || '').trim()
-    if (colors) body.colors = colors.split(',').map(s => s.trim()).filter(Boolean)
-
-    const res = await api('/api/inventory/sets', { method: 'POST', body: JSON.stringify(body) })
-    if (res.set) {
-      setShowSetForm(false)
-      e.target.reset()
-      loadInvSets()
-      showToast('Set created ✓')
-    } else {
-      showToast(res.error || 'Failed to create set')
-    }
-  }
-
-  async function updateSet(setId: number, updates: any) {
-    const res = await api(`/api/inventory/sets/${setId}`, { method: 'PATCH', body: JSON.stringify(updates) })
-    if (res.set) {
-      setInvSets(prev => prev.map(s => s.id === setId ? res.set : s))
-      setEditingSetId(null)
-      showToast('Set updated ✓')
-    } else {
-      showToast(res.error || 'Update failed')
-    }
-  }
-
-  async function deleteSet(setId: number, setName: string) {
-    if (!confirm(`Soft-delete "${setName}"? Pieces will be unlinked but preserved.`)) return
-    const res = await api(`/api/inventory/sets/${setId}`, { method: 'DELETE' })
-    if (res.ok) {
-      loadInvSets()
-      loadInvPieces()
-      showToast(`Set retired (${res.unlinked_pieces} pieces unlinked)`)
-    } else {
-      showToast(res.error || 'Delete failed')
-    }
-  }
-
-  async function createPiecesBulk(e: any) {
-    e.preventDefault()
-    const fd = new FormData(e.target)
-    const body: any = {
-      count: parseInt(fd.get('count') as string, 10),
-      barcode_prefix: fd.get('barcode_prefix'),
-      barcode_pad: parseInt(fd.get('barcode_pad') as string, 10) || 3,
-      label_template: fd.get('label_template') || null,
-      type: fd.get('type') || null,
-      territory: fd.get('territory'),
-    }
-    const setId = fd.get('set_id') as string
-    if (setId) body.set_id = parseInt(setId, 10)
-
-    const res = await api('/api/inventory/pieces/bulk', { method: 'POST', body: JSON.stringify(body) })
-    if (res.created) {
-      setShowBulkPieceForm(false)
-      e.target.reset()
-      loadInvPieces()
-      loadInvSets()
-      showToast(`${res.created} pieces created ✓`)
-    } else {
-      const msg = res.conflicting_barcodes
-        ? `Barcode conflicts: ${res.conflicting_barcodes.join(', ')}`
-        : (res.error || 'Bulk create failed')
-      showToast(msg)
-    }
-  }
-
-  async function updatePiece(pieceId: number, updates: any) {
-    const res = await api(`/api/inventory/pieces/${pieceId}`, { method: 'PATCH', body: JSON.stringify(updates) })
-    if (res.piece) {
-      setInvPieces(prev => prev.map(p => p.id === pieceId ? res.piece : p))
-      setEditingPieceId(null)
-      showToast('Piece updated ✓')
-    } else {
-      showToast(res.error || 'Update failed')
-    }
-  }
-
-  async function retirePiece(pieceId: number, barcode: string) {
-    if (!confirm(`Retire piece "${barcode}"? This removes it from active inventory.`)) return
-    const res = await api(`/api/inventory/pieces/${pieceId}`, { method: 'DELETE' })
-    if (res.piece) {
-      loadInvPieces()
-      showToast('Piece retired ✓')
-    } else {
-      showToast(res.error || 'Retire failed')
-    }
-  }
-
-  // ── 1099 CSV EXPORT ───
+  // ── 1099 CSV EXPORT ──
   function export1099() {
     if (!reports?.summary?.length) { showToast('No data to export'); return }
     const header = 'Helper Name,Email,Territory,Jobs Completed,Rate Per Job,Total Compensation\n'
@@ -368,8 +207,10 @@ export default function AdminPage() {
     if (fTerritories.length > 0 && !fTerritories.includes(j.territory || 'UK')) return false
     // Type multi-select
     if (fTypes.length > 0 && !fTypes.includes(j.type || 'standard')) return false
-    // Status multi-select
-    if (fStatuses.length > 0 && !fStatuses.includes(j.status || 'pending')) return false
+    // Status multi-select. EXCEPTION: unacknowledged cancellations always show
+    // until an admin acknowledges them, regardless of the status filter.
+    const isUnackedCancellation = j.status === 'cancelled' && !j.cancellation_acknowledged_at
+    if (!isUnackedCancellation && fStatuses.length > 0 && !fStatuses.includes(j.status || 'pending')) return false
     // Helper multi-select ('' = unassigned)
     if (fHelpers.length > 0) {
       const hid = j.helper_id ? String(j.helper_id) : ''
@@ -396,7 +237,7 @@ export default function AdminPage() {
   function clearAllFilters() {
     setFSetupFrom(''); setFSetupTo('')
     setFEventFrom(''); setFEventTo('')
-    setFTerritories([]); setFTypes([]); setFStatuses([]); setFHelpers([])
+    setFTerritories([]); setFTypes([]); setFStatuses(['pending','claimed','installed']); setFHelpers([])
   }
 
   // Date preset handlers (operate on Event Date range)
@@ -457,8 +298,9 @@ export default function AdminPage() {
               <div key={i} style={{ minHeight: 80, background: S.surface2, border: `1px solid ${isToday ? S.accent : S.border}`, borderRadius: 4, padding: 6 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: isToday ? S.accent : S.muted, marginBottom: 4 }}>{d}</div>
                 {dayJobs.slice(0,3).map(j => {
-                  const color = j.type === 'pov' ? '#b06eff' : j.territory === 'WW' ? S.blue : j.territory === 'TV' ? S.green : S.orange
-                  return <div key={j.id} style={{ padding: '2px 4px', borderRadius: 2, fontSize: 10, marginBottom: 1, background: color + '22', color, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{j.customer || j.address}</div>
+                  const unackedCancel = j.status === 'cancelled' && !j.cancellation_acknowledged_at
+                  const color = unackedCancel ? S.red : (j.type === 'pov' ? '#b06eff' : j.territory === 'WW' ? S.blue : j.territory === 'TV' ? S.green : S.orange)
+                  return <div key={j.id} style={{ padding: '2px 4px', borderRadius: 2, fontSize: 10, marginBottom: 1, background: color + '22', color, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', border: unackedCancel ? `1px dashed ${S.red}` : 'none' }}>{j.customer || j.address}</div>
                 })}
                 {dayJobs.length > 3 && <div style={{ fontSize: 10, color: S.muted }}>+{dayJobs.length - 3} more</div>}
               </div>
@@ -517,7 +359,7 @@ export default function AdminPage() {
 
       {/* Nav */}
       <div style={{ background: S.surface, borderBottom: `1px solid ${S.border}`, display: 'flex', padding: '0 24px', overflowX: 'auto' }}>
-        {['dashboard','calendar','jobs','queue','inventory','helpers','training','reports','settings'].map(t => (
+        {['dashboard','calendar','jobs','queue','helpers','training','reports','settings'].map(t => (
           <div key={t} onClick={() => { setTab(t); if (t === 'reports') api('/api/reports').then(r => { if (r.summary) setReports(r) }) }} style={{ padding: '10px 18px', fontSize: 13, fontWeight: 500, color: tab === t ? S.accent : S.muted, cursor: 'pointer', borderBottom: `2px solid ${tab === t ? S.accent : 'transparent'}`, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{t}</div>
         ))}
       </div>
@@ -689,8 +531,10 @@ export default function AdminPage() {
                     {filteredJobs.length === 0 && (
                       <tr><td colSpan={11} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No jobs match the current filters.</td></tr>
                     )}
-                    {filteredJobs.sort((a,b) => (a.event_date||'') < (b.event_date||'') ? -1 : 1).map(j => (
-                      <tr key={j.id}>
+                    {filteredJobs.sort((a,b) => (a.event_date||'') < (b.event_date||'') ? -1 : 1).map(j => {
+                      const unackedCancel = j.status === 'cancelled' && !j.cancellation_acknowledged_at
+                      return (
+                      <tr key={j.id} style={unackedCancel ? { background: S.red + '12' } : undefined}>
                         <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{j.setup_date || '—'}</td>
                         <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{j.event_date || '—'}</td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
@@ -698,7 +542,14 @@ export default function AdminPage() {
                             {j.kind === 'pick' ? 'PICK' : 'DROP'}
                           </span>
                         </td>
-                        <td style={{ padding: 12, fontSize: 12, maxWidth: 180, borderBottom: `1px solid ${S.border}` }}>{j.address}</td>
+                        <td style={{ padding: 12, fontSize: 12, maxWidth: 220, borderBottom: `1px solid ${S.border}` }}>
+                          {unackedCancel && (
+                            <div style={{ display: 'inline-block', fontSize: 9, fontFamily: 'DM Mono, monospace', letterSpacing: '0.1em', padding: '2px 6px', borderRadius: 3, background: S.red, color: '#fff', marginRight: 6, fontWeight: 700 }}>
+                              NEW CANCELLATION
+                            </div>
+                          )}
+                          {j.address}
+                        </td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>{j.customer || '—'}</td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={j.territory} /></td>
                         <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={j.type} /></td>
@@ -725,9 +576,20 @@ export default function AdminPage() {
                             <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>—</span>
                           )}
                         </td>
-                        <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><button style={btnDanger} onClick={() => deleteJob(j.id)}>✕</button></td>
+                        <td style={{ padding: 12, borderBottom: `1px solid ${S.border}`, whiteSpace: 'nowrap' }}>
+                          {unackedCancel && (
+                            <button
+                              style={{ background: S.red, color: '#fff', border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', marginRight: 6, fontFamily: 'DM Sans, sans-serif' }}
+                              onClick={() => acknowledgeCancellation(j.id)}
+                            >
+                              Acknowledge
+                            </button>
+                          )}
+                          <button style={btnDanger} onClick={() => deleteJob(j.id)}>✕</button>
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -757,361 +619,6 @@ export default function AdminPage() {
               </div>
             ))}
             {!jobs.filter(j => j.type === 'custom').length && <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>No custom orders in queue.</div>}
-          </div>
-        )}
-
-        {/* INVENTORY */}
-        {tab === 'inventory' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Inventory</h2>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {(['overview','sets','pieces','audit'] as const).map(st => (
-                  <button
-                    key={st}
-                    onClick={() => setInvTab(st)}
-                    style={{
-                      background: invTab === st ? S.accent : 'transparent',
-                      color: invTab === st ? '#000' : S.muted,
-                      border: `1px solid ${invTab === st ? S.accent : S.border}`,
-                      borderRadius: 4,
-                      padding: '6px 14px',
-                      fontSize: 12,
-                      fontFamily: 'DM Mono, monospace',
-                      fontWeight: invTab === st ? 700 : 400,
-                      cursor: 'pointer',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                    }}
-                  >
-                    {st}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* OVERVIEW SUB-TAB */}
-            {invTab === 'overview' && (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
-                  {[
-                    { label: 'Total Sets', value: invSets.filter(s => s.active).length, sub: `${invSets.filter(s => !s.active).length} retired` },
-                    { label: 'Total Pieces', value: invPieces.length, sub: 'all states' },
-                    { label: 'In Stock', value: invPieces.filter(p => p.status === 'in_stock').length, sub: 'available now' },
-                    { label: 'Checked Out', value: invPieces.filter(p => p.status === 'checked_out' || p.status === 'overdue').length, sub: invPieces.filter(p => p.status === 'overdue').length + ' overdue' },
-                    { label: 'Damaged', value: invPieces.filter(p => p.status === 'damaged').length, sub: 'need repair/retire' },
-                  ].map(s => (
-                    <div key={s.label} style={card}>
-                      <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{s.label}</div>
-                      <div style={{ fontSize: 32, fontWeight: 700, color: S.accent, fontFamily: 'DM Mono, monospace' }}>{s.value}</div>
-                      <div style={{ fontSize: 12, color: S.muted, marginTop: 4 }}>{s.sub}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={card}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Recent Activity</div>
-                    <button style={btnGhost} onClick={() => setInvTab('audit')}>View All →</button>
-                  </div>
-                  {invEvents.length === 0 ? (
-                    <div style={{ color: S.muted, fontSize: 13 }}>No activity yet.</div>
-                  ) : (
-                    invEvents.slice(0, 10).map(e => (
-                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${S.border}`, fontSize: 12 }}>
-                        <div>
-                          <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent, marginRight: 10 }}>{e.event_type}</span>
-                          <span style={{ color: S.muted }}>
-                            {e.piece_id ? `piece #${e.piece_id}` : ''}
-                            {e.set_id ? ` set #${e.set_id}` : ''}
-                            {e.helpers ? ` · ${e.helpers.name || e.helpers.email}` : ''}
-                          </span>
-                        </div>
-                        <span style={{ fontFamily: 'DM Mono, monospace', color: S.muted, fontSize: 11 }}>
-                          {new Date(e.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* SETS SUB-TAB */}
-            {invTab === 'sets' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                      placeholder="Filter by category..."
-                      value={setFilterCategory}
-                      onChange={e => setSetFilterCategory(e.target.value)}
-                      style={{ ...input, width: 180, padding: '6px 10px', fontSize: 12 }}
-                    />
-                    <select value={setFilterTerritory} onChange={e => setSetFilterTerritory(e.target.value)} style={{ ...input, width: 140, padding: '6px 10px', fontSize: 12 }}>
-                      <option value="">All territories</option>
-                      <option value="WW">WW</option>
-                      <option value="TV">TV</option>
-                      <option value="CL">CL</option>
-                    </select>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: S.muted, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={setShowInactive} onChange={e => setSetShowInactive(e.target.checked)} />
-                      Show retired
-                    </label>
-                  </div>
-                  <button style={btn} onClick={() => setShowSetForm(s => !s)}>
-                    {showSetForm ? '✕ Cancel' : '+ Add Set'}
-                  </button>
-                </div>
-
-                {/* INLINE CREATE FORM */}
-                {showSetForm && (
-                  <form onSubmit={createSet} style={{ ...card, borderColor: S.accent }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>New Set</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 12 }}>
-                      <div><label style={label}>Name *</label><input style={input} type="text" name="name" required placeholder="e.g. Pink Birthday Set" /></div>
-                      <div><label style={label}>Territory</label><select name="territory" style={input} defaultValue="WW"><option value="WW">Wildwood</option><option value="TV">Tavares</option><option value="CL">Clermont</option></select></div>
-                      <div><label style={label}>Category</label><input style={input} type="text" name="category" placeholder="birthday, graduation, anniversary..." /></div>
-                      <div><label style={label}>Theme</label><input style={input} type="text" name="theme" placeholder="pink_floral, classic_blue..." /></div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                      <div><label style={label}>Occasion(s) — comma separated</label><input style={input} type="text" name="occasion" placeholder="birthday, milestone" /></div>
-                      <div><label style={label}>Colors — comma separated</label><input style={input} type="text" name="colors" placeholder="pink, gold, white" /></div>
-                    </div>
-                    <div style={{ marginBottom: 14 }}>
-                      <label style={label}>Description</label>
-                      <textarea name="description" style={{ ...input, height: 60 }} placeholder="Notes for AI recommendations and staff..." />
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                      <button type="button" style={btnGhost} onClick={() => setShowSetForm(false)}>Cancel</button>
-                      <button type="submit" style={btn}>Create Set</button>
-                    </div>
-                  </form>
-                )}
-
-                {/* SETS TABLE */}
-                <div style={card}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr>{['Name','Territory','Category','Occasion','Colors','Pieces','Status','Actions'].map(h => (
-                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody>
-                        {invSets.length === 0 && (
-                          <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No sets yet. Click "Add Set" to create one.</td></tr>
-                        )}
-                        {invSets.map(s => (
-                          <tr key={s.id} style={{ opacity: s.active ? 1 : 0.5 }}>
-                            <td style={{ padding: 12, fontWeight: 600, borderBottom: `1px solid ${S.border}` }}>{s.name}</td>
-                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={s.territory} /></td>
-                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{s.category || '—'}</td>
-                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{(s.occasion || []).join(', ') || '—'}</td>
-                            <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{(s.colors || []).join(', ') || '—'}</td>
-                            <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', borderBottom: `1px solid ${S.border}` }}>{s.piece_count ?? 0}</td>
-                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
-                              <span style={{ fontSize: 11, color: s.active ? S.green : S.muted, fontFamily: 'DM Mono, monospace' }}>
-                                {s.active ? '● ACTIVE' : '○ RETIRED'}
-                              </span>
-                            </td>
-                            <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                {s.active && <button style={btnDanger} onClick={() => deleteSet(s.id, s.name)}>Retire</button>}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* PIECES SUB-TAB */}
-            {invTab === 'pieces' && (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <select value={pieceFilterStatus} onChange={e => setPieceFilterStatus(e.target.value)} style={{ ...input, width: 160, padding: '6px 10px', fontSize: 12 }}>
-                      <option value="">All statuses</option>
-                      <option value="in_stock">In Stock</option>
-                      <option value="scheduled">Scheduled</option>
-                      <option value="checked_out">Checked Out</option>
-                      <option value="overdue">Overdue</option>
-                      <option value="damaged">Damaged</option>
-                      <option value="retired">Retired</option>
-                    </select>
-                    <select value={pieceFilterSet} onChange={e => setPieceFilterSet(e.target.value)} style={{ ...input, width: 200, padding: '6px 10px', fontSize: 12 }}>
-                      <option value="">All sets</option>
-                      <option value="null">Unassigned</option>
-                      {invSets.filter(s => s.active).map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                    <select value={pieceFilterTerritory} onChange={e => setPieceFilterTerritory(e.target.value)} style={{ ...input, width: 140, padding: '6px 10px', fontSize: 12 }}>
-                      <option value="">All territories</option>
-                      <option value="WW">WW</option>
-                      <option value="TV">TV</option>
-                      <option value="CL">CL</option>
-                    </select>
-                  </div>
-                  <button style={btn} onClick={() => setShowBulkPieceForm(s => !s)}>
-                    {showBulkPieceForm ? '✕ Cancel' : '+ Bulk Add'}
-                  </button>
-                </div>
-
-                {/* INLINE BULK CREATE FORM */}
-                {showBulkPieceForm && (
-                  <form onSubmit={createPiecesBulk} style={{ ...card, borderColor: S.accent }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Bulk Create Pieces</div>
-                    <div style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
-                      Generates N pieces with sequentially numbered barcodes.
-                      Example: prefix "HBD-PINK-" + count 12 + pad 3 → HBD-PINK-001 through HBD-PINK-012.
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
-                      <div><label style={label}>Count *</label><input style={input} type="number" name="count" min={1} max={200} required defaultValue="12" /></div>
-                      <div><label style={label}>Barcode Prefix *</label><input style={input} type="text" name="barcode_prefix" required placeholder="HBD-PINK-LG-" /></div>
-                      <div><label style={label}>Padding Digits</label><input style={input} type="number" name="barcode_pad" min={1} max={6} defaultValue="3" /></div>
-                      <div><label style={label}>Territory</label><select name="territory" style={input} defaultValue="WW"><option value="WW">Wildwood</option><option value="TV">Tavares</option><option value="CL">Clermont</option></select></div>
-                      <div><label style={label}>Type</label><input style={input} type="text" name="type" placeholder="letter, number, graphic..." /></div>
-                      <div>
-                        <label style={label}>Assign to Set (optional)</label>
-                        <select name="set_id" style={input} defaultValue="">
-                          <option value="">No set</option>
-                          {invSets.filter(s => s.active).map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div style={{ marginBottom: 14 }}>
-                      <label style={label}>Label Template (use {'{n}'} for the number)</label>
-                      <input style={input} type="text" name="label_template" placeholder="Pink HBD Letter {n}" />
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                      <button type="button" style={btnGhost} onClick={() => setShowBulkPieceForm(false)}>Cancel</button>
-                      <button type="submit" style={btn}>Create Pieces</button>
-                    </div>
-                  </form>
-                )}
-
-                {/* RESULT COUNTER */}
-                <div style={{ fontSize: 12, color: S.muted, marginBottom: 12, fontFamily: 'DM Mono, monospace' }}>
-                  Showing {invPieces.length} pieces
-                </div>
-
-                {/* PIECES TABLE */}
-                <div style={card}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr>{['Barcode','Label','Type','Set','Territory','Status','Condition','Actions'].map(h => (
-                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody>
-                        {invPieces.length === 0 && (
-                          <tr><td colSpan={8} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No pieces match the current filters.</td></tr>
-                        )}
-                        {invPieces.map(p => {
-                          const setName = invSets.find(s => s.id === p.set_id)?.name
-                          const statusColor =
-                            p.status === 'in_stock' ? S.green :
-                            p.status === 'scheduled' ? S.blue :
-                            p.status === 'checked_out' ? S.accent :
-                            p.status === 'overdue' ? S.red :
-                            p.status === 'damaged' ? S.red :
-                            S.muted
-                          return (
-                            <tr key={p.id}>
-                              <td style={{ padding: 12, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{p.barcode}</td>
-                              <td style={{ padding: 12, fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{p.label || '—'}</td>
-                              <td style={{ padding: 12, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{p.type || '—'}</td>
-                              <td style={{ padding: 12, fontSize: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <select value={p.set_id || ''} onChange={e => updatePiece(p.id, { set_id: e.target.value ? parseInt(e.target.value, 10) : null })} style={{ background: S.bg, border: `1px solid ${S.border}`, color: S.text, padding: '4px 8px', fontSize: 11, borderRadius: 4 }}>
-                                  <option value="">Unassigned</option>
-                                  {invSets.filter(s => s.active).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                </select>
-                              </td>
-                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}><Badge t={p.territory} /></td>
-                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', padding: '2px 8px', borderRadius: 3, background: statusColor + '22', color: statusColor, border: `1px solid ${statusColor}44` }}>
-                                  {p.status}
-                                </span>
-                              </td>
-                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
-                                <select value={p.condition} onChange={e => updatePiece(p.id, { condition: e.target.value })} style={{ background: S.bg, border: `1px solid ${S.border}`, color: S.text, padding: '4px 8px', fontSize: 11, borderRadius: 4 }}>
-                                  {['good','worn','needs_repair','damaged'].map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                              </td>
-                              <td style={{ padding: 12, borderBottom: `1px solid ${S.border}` }}>
-                                {p.status !== 'retired' && p.status !== 'checked_out' && p.status !== 'overdue' && (
-                                  <button style={btnDanger} onClick={() => retirePiece(p.id, p.barcode)}>Retire</button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* AUDIT SUB-TAB */}
-            {invTab === 'audit' && (
-              <div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-                  <select value={auditFilterType} onChange={e => setAuditFilterType(e.target.value)} style={{ ...input, width: 200, padding: '6px 10px', fontSize: 12 }}>
-                    <option value="">All event types</option>
-                    {['created','scanned_out','scanned_in','reserved','unreserved','marked_damaged','marked_repaired','retired','state_change','note_added','set_assigned','set_unassigned','piece_missing'].map(t => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                  <input
-                    placeholder="Filter by piece ID..."
-                    value={auditFilterPiece}
-                    onChange={e => setAuditFilterPiece(e.target.value.replace(/[^0-9]/g, ''))}
-                    style={{ ...input, width: 160, padding: '6px 10px', fontSize: 12 }}
-                  />
-                </div>
-
-                <div style={card}>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                      <thead>
-                        <tr>{['When','Event','Piece','Set','Job','Helper','State'].map(h => (
-                          <th key={h} style={{ textAlign: 'left', padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: `1px solid ${S.border}` }}>{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody>
-                        {invEvents.length === 0 && (
-                          <tr><td colSpan={7} style={{ textAlign: 'center', padding: 32, color: S.muted }}>No events match the current filters.</td></tr>
-                        )}
-                        {invEvents.map(e => (
-                          <tr key={e.id}>
-                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.muted, borderBottom: `1px solid ${S.border}` }}>
-                              {new Date(e.created_at).toLocaleString()}
-                            </td>
-                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 11, color: S.accent, borderBottom: `1px solid ${S.border}` }}>{e.event_type}</td>
-                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.piece_id ? `#${e.piece_id}` : '—'}</td>
-                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.set_id ? `#${e.set_id}` : '—'}</td>
-                            <td style={{ padding: 10, fontFamily: 'DM Mono, monospace', fontSize: 12, borderBottom: `1px solid ${S.border}` }}>{e.job_id ? `#${e.job_id}` : '—'}</td>
-                            <td style={{ padding: 10, fontSize: 12, color: S.muted, borderBottom: `1px solid ${S.border}` }}>{e.helpers?.name || e.helpers?.email || '—'}</td>
-                            <td style={{ padding: 10, fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', borderBottom: `1px solid ${S.border}` }}>
-                              {e.from_state && e.to_state ? `${e.from_state} → ${e.to_state}` : (e.to_state || '—')}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1284,17 +791,8 @@ export default function AdminPage() {
               <div style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>Share this URL with helpers so they can create accounts and access their portal.</div>
             </div>
             <div style={card}>
-              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Admin Accounts</div>
-              <div style={{ fontSize: 13, color: S.muted }}>
-                Admin and helper accounts are stored together in the <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent }}>helpers</span> table.
-                To promote a helper to admin, update their role via SQL:
-              </div>
-              <div style={{ background: S.bg, border: `1px solid ${S.border}`, borderRadius: 6, padding: 14, fontFamily: 'DM Mono, monospace', fontSize: 12, color: S.accent, marginTop: 10, overflowX: 'auto' }}>
-                UPDATE helpers SET role = 'admin' WHERE email = '...';
-              </div>
-              <div style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>
-                Password resets and account changes propagate at next login.
-              </div>
+              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Admin Password</div>
+              <div style={{ fontSize: 13, color: S.muted }}>Admin password is managed via Vercel environment variable <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent }}>ADMIN_PASSWORD_HASH</span>. To change it, generate a new bcrypt hash and update the env var in your Vercel project settings.</div>
             </div>
             <div style={card}>
               <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Territory Zip Codes</div>
@@ -1431,3 +929,4 @@ export default function AdminPage() {
     </div>
   )
 }
+
