@@ -532,118 +532,326 @@ export default function HelperPage() {
 
       <div style={{ flex: 1, padding: 24, maxWidth: 900, width: '100%', margin: '0 auto' }}>
 
-        {/* MY JOBS */}
+        {/* ============================================================
+    MY JOBS — Phase 1 mobile-first rewrite (CMY brand palette)
+
+    REPLACES the existing {tab === 'my-jobs' && (...)} block in
+    app/helper/page.tsx. Everything else in the file stays the same.
+
+    Find this line:
         {tab === 'my-jobs' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>My Jobs</h2>
-              {activeForRoute.length >= 1 && (
-                <button style={btnSm} onClick={() => setTab('route')}>🗺 Build Route</button>
-              )}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
-              {[
-                { label: 'Active', value: jobs.filter(j => j.status !== 'complete').length },
-                { label: 'Completed', value: myCompleted },
-                { label: 'Est. Pay (This Month)', value: `$${estPay.toFixed(2)}`, color: S.green }
-              ].map(s => (
-                <div key={s.label} style={card}>
-                  <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>{s.label}</div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: s.color || S.accent, fontFamily: 'DM Mono, monospace' }}>{s.value}</div>
+    Select from there through its matching closing })} (the )} just
+    before `{tab === 'available' && (`) and replace with the block
+    below.
+
+    Uses Tailwind utility classes registered in tailwind.config.ts.
+    All inline styles removed in favor of utilities.
+============================================================ */}
+{tab === 'my-jobs' && (() => {
+  // ── Job sorting & grouping ───────────────────────────────
+  // Action-needed first, then awaiting-admin, then complete (last 7d),
+  // then older complete (collapsed). Cancelled hidden behind a link.
+  const now = new Date()
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+
+  const actionNeeded: any[] = []
+  const awaitingAdmin: any[] = []
+  const recentComplete: any[] = []
+  const olderComplete: any[] = []
+  const cancelled: any[] = []
+
+  for (const j of jobs) {
+    if (j.status === 'cancelled') { cancelled.push(j); continue }
+    if (j.status === 'claimed')   { actionNeeded.push(j); continue }
+    if (j.status === 'installed') { awaitingAdmin.push(j); continue }
+    if (j.status === 'complete') {
+      const ed = j.event_date ? new Date(j.event_date + 'T12:00:00') : null
+      if (ed && ed >= sevenDaysAgo) recentComplete.push(j)
+      else olderComplete.push(j)
+      continue
+    }
+  }
+  const bySetupAsc = (a: any, b: any) => (a.setup_date || '') < (b.setup_date || '') ? -1 : 1
+  const byEventDesc = (a: any, b: any) => (a.event_date || '') > (b.event_date || '') ? -1 : 1
+  actionNeeded.sort(bySetupAsc)
+  awaitingAdmin.sort(bySetupAsc)
+  recentComplete.sort(byEventDesc)
+  olderComplete.sort(byEventDesc)
+  cancelled.sort(byEventDesc)
+
+  // ── Tiny card component (declared inline so we can reach helper state)
+  const JobCard = ({ j }: { j: any }) => {
+    const borderClass =
+      j.status === 'claimed'   ? 'border-l-brand-orange-500' :
+      j.status === 'installed' ? 'border-l-brand-green-500' :
+      j.status === 'complete'  ? 'border-l-surface-300 dark:border-l-surface-900' :
+      j.status === 'cancelled' ? 'border-l-state-cancelled' :
+                                 'border-l-surface-200'
+
+    const statusBadge =
+      j.status === 'claimed'   ? 'bg-brand-orange-500/15 text-brand-orange-600 ring-1 ring-brand-orange-500/30' :
+      j.status === 'installed' ? 'bg-brand-green-500/15 text-brand-green-600 ring-1 ring-brand-green-500/30' :
+      j.status === 'complete'  ? 'bg-surface-200 text-surface-300 dark:bg-surface-900 dark:text-surface-200 ring-1 ring-surface-200/50' :
+      j.status === 'cancelled' ? 'bg-state-cancelled/15 text-state-cancelled ring-1 ring-state-cancelled/30' :
+                                 'bg-surface-200 text-state-pending ring-1 ring-surface-200'
+
+    const kindBadge =
+      j.kind === 'pick'
+        ? 'bg-brand-navy-600/10 text-brand-navy-600 dark:bg-brand-navy-200/15 dark:text-brand-navy-100'
+        : 'bg-brand-orange-500/10 text-brand-orange-700 dark:bg-brand-orange-500/15 dark:text-brand-orange-300'
+
+    return (
+      <article
+        className={[
+          'rounded-card border border-surface-200 dark:border-surface-900',
+          'border-l-4', borderClass,
+          'bg-surface-50 dark:bg-surface-900',
+          'shadow-card',
+          'px-4 py-4',
+        ].join(' ')}
+      >
+        {/* Top row: address + status/kind badges */}
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <h3 className="text-base font-semibold leading-tight text-brand-navy-700 dark:text-surface-50 break-words flex-1 min-w-0">
+            {j.address}
+          </h3>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider ${kindBadge}`}>
+              {j.kind === 'pick' ? 'PICK' : 'DROP'}
+            </span>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider ${statusBadge}`}>
+              {j.status}
+            </span>
+          </div>
+        </div>
+
+        {/* Meta line: dates + pay */}
+        <div className="font-mono text-xs text-state-pending dark:text-surface-200 mb-3 flex flex-wrap gap-x-3 gap-y-1">
+          <span>Event: {fmtDate(j.event_date) || '—'}</span>
+          <span className="hidden xs:inline">·</span>
+          <span>Setup: {fmtDate(j.setup_date) || '—'}</span>
+          <span className="hidden xs:inline">·</span>
+          <span className="font-semibold text-brand-green-600 dark:text-brand-green-300">
+            ${jobPay(j, helper?.pay_override)}
+          </span>
+        </div>
+
+        {/* Order details */}
+        {j.details && (
+          <p className="text-sm text-surface-300 dark:text-surface-200 mb-3 leading-snug">
+            {j.details}
+          </p>
+        )}
+
+        {/* Action area — varies by status + kind */}
+        {j.status === 'claimed' && j.kind === 'pick' && (
+          <button
+            onClick={() => markPickedUp(j.id)}
+            className="w-full min-h-tap rounded-btn bg-brand-orange-500 hover:bg-brand-orange-600 active:bg-brand-orange-700 text-white font-semibold text-sm transition-colors"
+          >
+            ✓ Mark Picked Up
+          </button>
+        )}
+
+        {j.status === 'claimed' && j.kind !== 'pick' && (
+          <div className="flex flex-col gap-2">
+            {!j.photo_url && (
+              <>
+                <label className={`w-full min-h-tap rounded-btn bg-brand-navy-600 hover:bg-brand-navy-700 active:bg-brand-navy-800 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${uploadingJobId === j.id ? 'cursor-wait opacity-70' : 'cursor-pointer'}`}>
+                  <span>{uploadingJobId === j.id ? 'Uploading…' : '📷 Upload Install Photo'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    disabled={uploadingJobId === j.id}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) uploadPhoto(j.id, f)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-state-pending dark:text-surface-200 font-mono text-center">
+                  Photo required to mark installed
+                </p>
+              </>
+            )}
+            {j.photo_url && (
+              <div className="flex items-center gap-3">
+                <a href={j.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
+                  <img
+                    src={j.photo_url}
+                    alt="Install"
+                    className="w-14 h-14 rounded-lg object-cover border border-surface-200 dark:border-surface-900"
+                  />
+                </a>
+                <div className="flex-1 flex flex-col gap-2">
+                  <button
+                    onClick={() => markInstalled(j.id)}
+                    className="w-full min-h-tap rounded-btn bg-brand-orange-500 hover:bg-brand-orange-600 active:bg-brand-orange-700 text-white font-semibold text-sm transition-colors"
+                  >
+                    Mark Installed
+                  </button>
+                  <label className="text-xs text-state-pending dark:text-surface-200 underline cursor-pointer text-center">
+                    replace photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      disabled={uploadingJobId === j.id}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) uploadPhoto(j.id, f)
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
                 </div>
-              ))}
-            </div>
-            {!jobs.length && <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>No jobs claimed yet. Check Available Jobs.</div>}
-            {jobs.sort((a, b) => (a.event_date || '') < (b.event_date || '') ? -1 : 1).map(j => (
-              <div key={j.id} style={{ ...card, borderColor: j.status === 'complete' ? S.border : S.border }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>{j.address}</div>
-                    <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>Event: {j.event_date || '—'} &nbsp;·&nbsp; Setup: {j.setup_date || '—'} &nbsp;·&nbsp; ${jobPay(j, helper?.pay_override)}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 4, background: j.kind === 'pick' ? S.orange + '22' : S.blue + '22', color: j.kind === 'pick' ? S.orange : S.blue, border: `1px solid ${j.kind === 'pick' ? S.orange : S.blue}55` }}>
-                      {j.kind === 'pick' ? 'PICK' : 'DROP'}
-                    </span>
-                    <Badge t={j.status} />
-                  </div>
-                </div>
-                {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{j.details}</div>}
-
-                {/* Photo upload + Mark Installed (claimed status only) */}
-                {j.status === 'claimed' && j.kind === 'pick' && (
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button style={{ ...btnSm, background: S.orange, color: '#000' }} onClick={() => markPickedUp(j.id)}>
-                      ✓ Mark Picked Up
-                    </button>
-                    <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>No photo required for picks</span>
-                  </div>
-                )}
-
-                {j.status === 'claimed' && j.kind !== 'pick' && (
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {!j.photo_url && (
-                      <>
-                        <label style={{ ...btnSm, background: S.blue, color: '#fff', cursor: uploadingJobId === j.id ? 'wait' : 'pointer', display: 'inline-block' }}>
-                          {uploadingJobId === j.id ? 'Uploading...' : '📷 Upload Install Photo'}
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            style={{ display: 'none' }}
-                            disabled={uploadingJobId === j.id}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0]
-                              if (f) uploadPhoto(j.id, f)
-                              e.target.value = '' // allow re-selecting same file
-                            }}
-                          />
-                        </label>
-                        <span style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace' }}>Photo required to mark installed</span>
-                      </>
-                    )}
-                    {j.photo_url && (
-                      <>
-                        <a href={j.photo_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                          <img src={j.photo_url} alt="Install photo" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${S.border}` }} />
-                        </a>
-                        <button style={btnSm} onClick={() => markInstalled(j.id)}>Mark Installed</button>
-                        <label style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', cursor: 'pointer', textDecoration: 'underline' }}>
-                          replace photo
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            style={{ display: 'none' }}
-                            disabled={uploadingJobId === j.id}
-                            onChange={(e) => {
-                              const f = e.target.files?.[0]
-                              if (f) uploadPhoto(j.id, f)
-                              e.target.value = ''
-                            }}
-                          />
-                        </label>
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {j.status === 'installed' && (
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    {j.photo_url && (
-                      <a href={j.photo_url} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                        <img src={j.photo_url} alt="Install photo" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: `1px solid ${S.border}` }} />
-                      </a>
-                    )}
-                    <span style={{ fontSize: 12, color: S.green }}>✓ Awaiting admin completion</span>
-                  </div>
-                )}
               </div>
-            ))}
+            )}
           </div>
         )}
 
-        {/* AVAILABLE - with sort/filter */}
+        {j.status === 'installed' && (
+          <div className="flex items-center gap-3">
+            {j.photo_url && (
+              <a href={j.photo_url} target="_blank" rel="noreferrer" className="shrink-0">
+                <img
+                  src={j.photo_url}
+                  alt="Install"
+                  className="w-14 h-14 rounded-lg object-cover border border-surface-200 dark:border-surface-900"
+                />
+              </a>
+            )}
+            <span className="text-sm text-brand-green-600 dark:text-brand-green-300 font-medium">
+              ✓ Awaiting admin completion
+            </span>
+          </div>
+        )}
+      </article>
+    )
+  }
+
+  // ── Stats line ──────────────────────────────────────────
+  const activeCount = jobs.filter(j => j.status !== 'complete' && j.status !== 'cancelled').length
+  const completedCount = myCompleted
+
+  // ── Layout ──────────────────────────────────────────────
+  return (
+    <div className="px-4 sm:px-6 max-w-2xl mx-auto pb-12">
+      {/* Header row */}
+      <header className="flex items-center justify-between gap-3 pt-4 pb-3">
+        <h2 className="text-xl font-bold text-brand-navy-700 dark:text-surface-50">
+          My Jobs
+        </h2>
+        {activeForRoute.length >= 1 && (
+          <button
+            onClick={() => setTab('route')}
+            className="min-h-tap px-3 rounded-btn bg-brand-orange-500 hover:bg-brand-orange-600 active:bg-brand-orange-700 text-white text-xs font-semibold whitespace-nowrap transition-colors"
+          >
+            🗺 Build Route
+          </button>
+        )}
+      </header>
+
+      {/* Compact stat strip — one line on mobile */}
+      <div className="flex items-center gap-x-4 gap-y-1 mb-5 px-3 py-2.5 rounded-card bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-900 font-mono text-xs flex-wrap">
+        <span className="flex items-baseline gap-1.5">
+          <strong className="text-base font-bold text-brand-orange-500 tabular-nums">{activeCount}</strong>
+          <span className="text-state-pending dark:text-surface-200 uppercase tracking-wider">active</span>
+        </span>
+        <span className="text-surface-300 dark:text-surface-900">·</span>
+        <span className="flex items-baseline gap-1.5">
+          <strong className="text-base font-bold text-brand-navy-600 dark:text-brand-navy-100 tabular-nums">{completedCount}</strong>
+          <span className="text-state-pending dark:text-surface-200 uppercase tracking-wider">done</span>
+        </span>
+        <span className="text-surface-300 dark:text-surface-900">·</span>
+        <span className="flex items-baseline gap-1.5">
+          <strong className="text-base font-bold text-brand-green-600 dark:text-brand-green-300 tabular-nums">${estPay.toFixed(0)}</strong>
+          <span className="text-state-pending dark:text-surface-200 uppercase tracking-wider">this mo</span>
+        </span>
+      </div>
+
+      {/* Empty state */}
+      {!jobs.length && (
+        <div className="rounded-card border border-dashed border-surface-200 dark:border-surface-900 bg-surface-50 dark:bg-surface-900 p-10 text-center">
+          <p className="text-state-pending dark:text-surface-200 text-sm">
+            No jobs claimed yet.
+          </p>
+          <button
+            onClick={() => setTab('available')}
+            className="mt-3 text-brand-orange-500 hover:text-brand-orange-600 text-sm font-semibold underline"
+          >
+            Browse Available Jobs
+          </button>
+        </div>
+      )}
+
+      {/* ── Action needed ──────────────────────────────── */}
+      {actionNeeded.length > 0 && (
+        <section className="mb-6">
+          <h3 className="font-mono text-[11px] uppercase tracking-widest text-brand-orange-500 mb-2.5 px-1">
+            Action needed · {actionNeeded.length}
+          </h3>
+          <div className="space-y-3">
+            {actionNeeded.map(j => <JobCard key={j.id} j={j} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ── Awaiting admin ─────────────────────────────── */}
+      {awaitingAdmin.length > 0 && (
+        <section className="mb-6">
+          <h3 className="font-mono text-[11px] uppercase tracking-widest text-brand-green-600 dark:text-brand-green-300 mb-2.5 px-1">
+            Awaiting admin · {awaitingAdmin.length}
+          </h3>
+          <div className="space-y-3">
+            {awaitingAdmin.map(j => <JobCard key={j.id} j={j} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ── Recent completed (last 7d) ─────────────────── */}
+      {recentComplete.length > 0 && (
+        <section className="mb-6">
+          <h3 className="font-mono text-[11px] uppercase tracking-widest text-state-pending dark:text-surface-200 mb-2.5 px-1">
+            Recently completed · {recentComplete.length}
+          </h3>
+          <div className="space-y-3">
+            {recentComplete.map(j => <JobCard key={j.id} j={j} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ── Older completed (collapsed) ────────────────── */}
+      {olderComplete.length > 0 && (
+        <details className="mb-6 rounded-card border border-surface-200 dark:border-surface-900 bg-surface-50 dark:bg-surface-900">
+          <summary className="cursor-pointer px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-state-pending dark:text-surface-200 select-none">
+            Show older completed · {olderComplete.length}
+          </summary>
+          <div className="space-y-3 p-4 pt-0">
+            {olderComplete.map(j => <JobCard key={j.id} j={j} />)}
+          </div>
+        </details>
+      )}
+
+      {/* ── Cancelled (collapsed) ──────────────────────── */}
+      {cancelled.length > 0 && (
+        <details className="mb-6 rounded-card border border-surface-200 dark:border-surface-900 bg-surface-50 dark:bg-surface-900">
+          <summary className="cursor-pointer px-4 py-3 font-mono text-[11px] uppercase tracking-widest text-state-cancelled select-none">
+            Cancelled · {cancelled.length}
+          </summary>
+          <div className="space-y-3 p-4 pt-0">
+            {cancelled.map(j => <JobCard key={j.id} j={j} />)}
+          </div>
+        </details>
+      )}
+    </div>
+  )
+})()}
+
         {tab === 'available' && (
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>Available Jobs</h2>
