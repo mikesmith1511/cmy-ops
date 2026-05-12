@@ -287,15 +287,14 @@ export async function POST(req: NextRequest) {
     if (existing) {
       // Update path: preserve helper_id, status, and any other operational state.
       // We only touch data fields and the sync metadata.
-      const { error, count } = await db
+       const { error, count } = await db
         .from('jobs')
         .update({
           ...fields,
           sync_source: 'sheet',
           last_sync_at: now,
-        })
+        }, { count: 'exact' })
         .eq('id', existing.id)
-        .select('id', { count: 'exact', head: true })
 
       if (error) {
         errored++
@@ -486,11 +485,10 @@ export async function POST(req: NextRequest) {
                 cancelled_at: now,
                 cancelled_reason: 'removed_from_sheet',
                 last_sync_at: now,
-              })
+              }, { count: 'exact' })
               .in('id', idChunk)
               .eq('status', 'pending') // <-- the race-safety clause
               .eq('sync_source', 'sheet')
-              .select('id', { count: 'exact', head: true })
 
             if (updErr) {
               await logSyncError(db, {
