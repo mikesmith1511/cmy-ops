@@ -148,7 +148,7 @@ export default function HelperPage() {
   async function doLogin() {
     setError('')
     const res = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: loginEmail, password: loginPw, role: 'helper' }) })
-    if (res.ok) { setHelper(res.helper); setScreen('landing'); setLoginEmail(''); setLoginPw(''); loadPortal(res.helper.id) }
+    if (res.ok) { setHelper(res.user); setScreen('landing'); setLoginEmail(''); setLoginPw(''); loadPortal(res.user.id) }
     else setError('Email or password is incorrect.')
   }
 
@@ -169,7 +169,7 @@ export default function HelperPage() {
     })
     if (res.ok) {
       const loginRes = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email: setupEmail, password: setupPw, role: 'helper' }) })
-      if (loginRes.ok) { setHelper(loginRes.helper); setScreen('setup3') }
+      if (loginRes.ok) { setHelper(loginRes.user); setScreen('setup3') }
     } else setError(res.error || 'Something went wrong.')
   }
 
