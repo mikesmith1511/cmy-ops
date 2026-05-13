@@ -5,11 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { syncJobToCalendar } from '@/lib/calendar-sync';
 
-export const runtime = 'nodejs';        // googleapis needs node, not edge
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
-  // Auth: require shared-secret header
   const expected = process.env.CALENDAR_SYNC_SECRET;
   const provided = req.headers.get('x-sync-secret');
   if (!expected) {
@@ -44,7 +43,6 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  // Health check
   return NextResponse.json({
     ok: true,
     route: 'calendar/sync',

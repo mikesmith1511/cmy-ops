@@ -47,10 +47,10 @@ export async function createEvent(input: CalendarEventInput): Promise<string> {
     requestBody: {
       summary: input.title,
       description: input.description,
-      start: { date: input.date },          // all-day event
-      end:   { date: input.date },          // single-day all-day
+      start: { date: input.date },
+      end:   { date: input.date },
       colorId: input.colorId,
-      reminders: { useDefault: false },     // no notifications by default
+      reminders: { useDefault: false },
     },
   });
   if (!res.data.id) throw new Error('Google Calendar did not return an event id');
@@ -80,7 +80,6 @@ export async function deleteEvent(eventId: string): Promise<void> {
       eventId,
     });
   } catch (err: any) {
-    // 410 Gone = already deleted; treat as success
     if (err?.response?.status === 410 || err?.code === 410) return;
     throw err;
   }

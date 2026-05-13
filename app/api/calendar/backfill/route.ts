@@ -1,10 +1,6 @@
 // app/api/calendar/backfill/route.ts
 // One-time endpoint: walks all active (non-cancelled) jobs and ensures
-// they have calendar events. Safe to re-run — existing events get updated.
-//
-// Call via:
-//   curl -X POST https://cmy-ops.vercel.app/api/calendar/backfill \
-//     -H "x-sync-secret: <CALENDAR_SYNC_SECRET>"
+// they have calendar events.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
@@ -12,7 +8,7 @@ import { syncJobToCalendar } from '@/lib/calendar-sync';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes — backfill can take a while
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const expected = process.env.CALENDAR_SYNC_SECRET;
@@ -23,8 +19,6 @@ export async function POST(req: NextRequest) {
 
   const supabase = getServiceSupabase();
 
-  // Fetch ALL non-cancelled jobs (let the per-job sync function decide
-  // whether to skip e.g. cancelled, etc.)
   const { data: jobs, error } = await supabase
     .from('jobs')
     .select('id, state, status, event_date')
@@ -45,8 +39,6 @@ export async function POST(req: NextRequest) {
     errors: [] as Array<{ jobId: number; error: string }>,
   };
 
-  // Process sequentially to avoid hammering Google's rate limits.
-  // Google Calendar API quota: 500 req/100 sec for inserts, plenty for our volume.
   for (const job of jobs ?? []) {
     try {
       const result = await syncJobToCalendar(job.id);
