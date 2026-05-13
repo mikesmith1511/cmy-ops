@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
   // ===========================================================
   // ADMIN VIEW
   // ===========================================================
-  let query = db.from('jobs').select('*, helpers(name, email)').order('event_date', { ascending: true })
+  let query = db.from('jobs').select('*, helpers!helper_id(name, email)').order('event_date', { ascending: true })
   if (territory && territory !== 'ALL') query = query.eq('territory', territory)
   if (status) query = query.eq('status', status)
   if (kind) query = query.eq('kind', kind)
