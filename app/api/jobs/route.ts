@@ -70,44 +70,45 @@ export async function GET(req: NextRequest) {
     }
 
     // My Jobs: return everything the helper owns (drops AND picks).
-// For picks, attach the paired drop's install status so the UI can
-// gate "Mark Picked Up" until the drop has been installed with photo.
-// This works across split-helper scenarios — Helper B's pick can see
-// Helper A's drop status without "owning" the drop row.
-const { data: myJobs, error } = await db.from('jobs')
-  .select('*')
-  .eq('helper_id', token.id)
-  .order('event_date', { ascending: true })
+    // For picks, attach the paired drop's install status so the UI can
+    // gate "Mark Picked Up" until the drop has been installed with photo.
+    // This works across split-helper scenarios — Helper B's pick can see
+    // Helper A's drop status without "owning" the drop row.
+    const { data: myJobs, error: myJobsErr } = await db.from('jobs')
+      .select('*')
+      .eq('helper_id', token.id)
+      .order('event_date', { ascending: true })
 
-if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-if (!myJobs || myJobs.length === 0) return NextResponse.json([])
+    if (myJobsErr) return NextResponse.json({ error: myJobsErr.message }, { status: 500 })
+    if (!myJobs || myJobs.length === 0) return NextResponse.json([])
 
-// For every pick row, fetch its paired drop's status + photo_url
-const pickRows = myJobs.filter((j: any) => j.kind === 'pick' && j.paired_job_id)
-const pairedDropIds = pickRows.map((p: any) => p.paired_job_id)
+    // For every pick row, fetch its paired drop's status + photo_url
+    const myPickRows = myJobs.filter((j: any) => j.kind === 'pick' && j.paired_job_id)
+    const pairedDropIds = myPickRows.map((p: any) => p.paired_job_id)
 
-let dropsByPairId = new Map<number, any>()
-if (pairedDropIds.length > 0) {
-  const { data: pairedDrops } = await db
-    .from('jobs')
-    .select('id, status, photo_url')
-    .in('id', pairedDropIds)
-  ;(pairedDrops || []).forEach((d: any) => dropsByPairId.set(d.id, d))
-}
-
-const enriched = myJobs.map((j: any) => {
-  if (j.kind === 'pick' && j.paired_job_id) {
-    const drop = dropsByPairId.get(j.paired_job_id)
-    return {
-      ...j,
-      paired_drop_status: drop?.status || null,
-      paired_drop_has_photo: !!drop?.photo_url,
+    const dropsByPairId = new Map<number, any>()
+    if (pairedDropIds.length > 0) {
+      const { data: pairedDrops } = await db
+        .from('jobs')
+        .select('id, status, photo_url')
+        .in('id', pairedDropIds)
+      ;(pairedDrops || []).forEach((d: any) => dropsByPairId.set(d.id, d))
     }
-  }
-  return j
-})
 
-return NextResponse.json(enriched)
+    const enrichedMyJobs = myJobs.map((j: any) => {
+      if (j.kind === 'pick' && j.paired_job_id) {
+        const drop = dropsByPairId.get(j.paired_job_id)
+        return {
+          ...j,
+          paired_drop_status: drop?.status || null,
+          paired_drop_has_photo: !!drop?.photo_url,
+        }
+      }
+      return j
+    })
+
+    return NextResponse.json(enrichedMyJobs)
+  }
 
   // ===========================================================
   // ADMIN VIEW
