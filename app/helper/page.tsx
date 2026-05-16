@@ -195,15 +195,13 @@ const [claimSubmitting, setClaimSubmitting] = useState(false)
   // Open the claim modal for a given drop job. Look up paired pick status
 // from availableJobs so we can grey out the Pick checkbox if it's gone.
 function openClaimModal(job: any) {
-  const hasPick = !!job.paired_job_id
-  // If the paired pick is NOT in availableJobs, it's either claimed by
-  // someone else or doesn't exist. Treat "not visible" as claimed.
-  const pairedVisible = hasPick && availableJobs.some(j => j.id === job.paired_job_id)
-  const pickClaimed = hasPick && !pairedVisible
+  // Backend attaches paired pick info to each drop under .pick
+  const hasPick = !!job.pick
+  const pickClaimed = hasPick && !!job.pick.helper_id
 
   setClaimModal({ job, pickClaimed, hasPick })
   setClaimDrop(true)
-  setClaimPick(hasPick && !pickClaimed) // default checked only if claimable
+  setClaimPick(hasPick && !pickClaimed)
 }
 
 function closeClaimModal() {
