@@ -116,16 +116,40 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // PICKED_UP: helper marks PICK as complete (no photo required).
     // ---------------------------------------------------------
     if (body.action === 'picked_up') {
-      if (job.kind !== 'pick') {
-        return NextResponse.json({
-          error: 'Only picks can use picked_up. Drops use installed.'
-        }, { status: 400 })
-      }
-      if (job.helper_id !== token.id) return NextResponse.json({ error: 'Not your job' }, { status: 403 })
-      const { data, error } = await db.from('jobs').update({ status: 'complete' }).eq('id', id).select().single()
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      return NextResponse.json(data)
+  if (job.kind !== 'pick') {
+    return NextResponse.json({
+      error: 'Only picks can use picked_up. Drops use installed.'
+    }, { status: 400 })
+  }
+  if (job.helper_id !== token.id) return NextResponse.json({ error: 'Not your job' }, { status: 403 })
+
+  // Gate: paired drop must be installed (or complete) with photo on file.
+  // This prevents pickup before the sign actually went out.
+  if (job.paired_job_id) {
+    const { data: drop } = await db
+      .from('jobs')
+      .select('status, photo_url')
+      .eq('id', job.paired_job_id)
+      .single()
+    if (!drop) {
+      return NextResponse.json({ error: 'Paired drop not found.' }, { status: 404 })
     }
+    if (drop.status !== 'installed' && drop.status !== 'complete') {
+      return NextResponse.json({
+        error: 'Sign must be installed before pickup.'
+      }, { status: 400 })
+    }
+    if (!drop.photo_url) {
+      return NextResponse.json({
+        error: 'Install photo required before pickup.'
+      }, { status: 400 })
+    }
+  }
+
+  const { data, error } = await db.from('jobs').update({ status: 'complete' }).eq('id', id).select().single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data)
+}
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }

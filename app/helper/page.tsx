@@ -690,14 +690,37 @@ async function confirmClaim() {
         )}
 
         {/* Action area — varies by status + kind */}
-        {j.status === 'claimed' && j.kind === 'pick' && (
-          <button
-            onClick={() => markPickedUp(j.id)}
-            className="w-full min-h-tap rounded-btn bg-brand-orange-500 hover:bg-brand-orange-600 active:bg-brand-orange-700 text-white font-semibold text-sm transition-colors"
-          >
-            ✓ Mark Picked Up
-          </button>
-        )}
+        {j.status === 'claimed' && j.kind === 'pick' && (() => {
+  // Pickup is only allowed after the drop has been installed AND has a photo.
+  // The drop may be claimed by a different helper (split job) — we use
+  // paired_drop_status/paired_drop_has_photo attached by the backend.
+  const dropReady = j.paired_drop_status === 'installed' || j.paired_drop_status === 'complete'
+  const photoReady = j.paired_drop_has_photo
+  const canPickUp = dropReady && photoReady
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={() => canPickUp && markPickedUp(j.id)}
+        disabled={!canPickUp}
+        className={`w-full min-h-tap rounded-btn text-white font-semibold text-sm transition-colors ${
+          canPickUp
+            ? 'bg-brand-orange-500 hover:bg-brand-orange-600 active:bg-brand-orange-700 cursor-pointer'
+            : 'bg-surface-300 dark:bg-surface-900 opacity-50 cursor-not-allowed'
+        }`}
+      >
+        ✓ Mark Picked Up
+      </button>
+      {!canPickUp && (
+        <p className="text-xs text-state-pending dark:text-surface-200 font-mono text-center">
+          {!dropReady
+            ? 'Waiting for sign to be installed'
+            : 'Waiting for install photo'}
+        </p>
+      )}
+    </div>
+  )
+})()}
 
         {j.status === 'claimed' && j.kind !== 'pick' && (
           <div className="flex flex-col gap-2">
