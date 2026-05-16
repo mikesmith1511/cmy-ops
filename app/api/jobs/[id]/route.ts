@@ -127,25 +127,34 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json(data)
     }
 
-    if (body.action === 'acknowledge_cancellation') {
-      if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      const { data, error } = await db
-        .from('jobs')
-        .update({ cancellation_acknowledged_at: new Date().toISOString() })
-        .eq('id', id)
-        .eq('status', 'cancelled')
-        .select()
-        .single()
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      return NextResponse.json(data)
-    }
-
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
 
   // ===========================================================
-  // ADMIN ACTIONS - can update anything on either drop or pick
+  // ADMIN ACTIONS
   // ===========================================================
+  if (!isAdmin(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // ---------------------------------------------------------
+  // ACKNOWLEDGE_CANCELLATION: admin clears the red banner on a cancelled job.
+  // Idempotent: if already acknowledged or not cancelled, return current row.
+  // ---------------------------------------------------------
+  if (body.action === 'acknowledge_cancellation') {
+    const { data, error } = await db
+      .from('jobs')
+      .update({ cancellation_acknowledged_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('status', 'cancelled')
+      .select()
+      .maybeSingle()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data) return NextResponse.json({ error: 'Job not found or not cancelled' }, { status: 404 })
+    return NextResponse.json(data)
+  }
+
+  // ---------------------------------------------------------
+  // GENERIC ADMIN UPDATE - can update anything on either drop or pick
+  // ---------------------------------------------------------
   const updates: any = {}
   if (body.status !== undefined) {
     updates.status = body.status
@@ -158,6 +167,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.setupDate !== undefined) updates.setup_date = body.setupDate
   if (body.eventDate !== undefined) updates.event_date = body.eventDate
   if (body.details !== undefined) updates.details = body.details
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+  }
 
   const { data, error } = await db.from('jobs').update(updates).eq('id', id).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
