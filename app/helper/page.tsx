@@ -121,6 +121,15 @@ export default function HelperPage() {
 
   // Photo upload state - tracks which job is currently uploading
   const [uploadingJobId, setUploadingJobId] = useState<number | null>(null)
+  // Claim modal state — which drop job is being claimed, and which legs are checked
+const [claimModal, setClaimModal] = useState<{
+  job: any
+  pickClaimed: boolean   // true if paired pick is already taken by someone else
+  hasPick: boolean       // true if a paired pick exists at all
+} | null>(null)
+const [claimDrop, setClaimDrop] = useState(true)
+const [claimPick, setClaimPick] = useState(true)
+const [claimSubmitting, setClaimSubmitting] = useState(false)
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
@@ -183,11 +192,50 @@ export default function HelperPage() {
     setHelper(null); setScreen('landing')
   }
 
-  async function claimJob(jobId: number) {
-    const res = await api(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify({ action: 'claim' }) })
-    if (res.id) { showToast('Job claimed ✓'); loadPortal() }
-    else showToast(res.error || 'Could not claim job.')
+  // Open the claim modal for a given drop job. Look up paired pick status
+// from availableJobs so we can grey out the Pick checkbox if it's gone.
+function openClaimModal(job: any) {
+  const hasPick = !!job.paired_job_id
+  // If the paired pick is NOT in availableJobs, it's either claimed by
+  // someone else or doesn't exist. Treat "not visible" as claimed.
+  const pairedVisible = hasPick && availableJobs.some(j => j.id === job.paired_job_id)
+  const pickClaimed = hasPick && !pairedVisible
+
+  setClaimModal({ job, pickClaimed, hasPick })
+  setClaimDrop(true)
+  setClaimPick(hasPick && !pickClaimed) // default checked only if claimable
+}
+
+function closeClaimModal() {
+  setClaimModal(null)
+  setClaimSubmitting(false)
+}
+
+async function confirmClaim() {
+  if (!claimModal) return
+  const legs: string[] = []
+  if (claimDrop) legs.push('drop')
+  if (claimPick) legs.push('pick')
+  if (legs.length === 0) {
+    showToast('Select at least one leg to claim.')
+    return
   }
+  setClaimSubmitting(true)
+  const res = await api(`/api/jobs/${claimModal.job.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action: 'claim', legs })
+  })
+  // Backend returns { ok: true, claimed: [...] } on success
+  if (res.ok && Array.isArray(res.claimed)) {
+    const n = res.claimed.length
+    showToast(n === 2 ? 'Drop + Pick claimed ✓' : n === 1 ? 'Job claimed ✓' : 'Claimed ✓')
+    closeClaimModal()
+    loadPortal()
+  } else {
+    showToast(res.error || 'Could not claim job.')
+    setClaimSubmitting(false)
+  }
+}
 
   async function markInstalled(jobId: number) {
     const res = await api(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify({ action: 'installed' }) })
@@ -899,9 +947,9 @@ export default function HelperPage() {
                   <Badge t={j.territory || 'UK'} />
                 </div>
                 {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{j.details}</div>}
-                <button style={{ ...btnSm, opacity: helper?.approved ? 1 : 0.5, cursor: helper?.approved ? 'pointer' : 'not-allowed' }} onClick={() => helper?.approved && claimJob(j.id)}>
-                  {helper?.approved ? 'Claim Job' : 'Approval Required'}
-                </button>
+                <button style={{ ...btnSm, opacity: helper?.approved ? 1 : 0.5, cursor: helper?.approved ? 'pointer' : 'not-allowed' }} onClick={() => helper?.approved && openClaimModal(j)}>
+  {helper?.approved ? 'Claim Job' : 'Approval Required'}
+</button>
               </div>
             ))}
           </div>
@@ -1174,6 +1222,129 @@ export default function HelperPage() {
         )}
       </div>
 
+{/* Claim Modal — pick which legs to claim */}
+{claimModal && (
+  <div
+    onClick={closeClaimModal}
+    style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 1000, padding: 16
+    }}
+  >
+    <div
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        background: S.surface, border: `1px solid ${S.border}`, borderRadius: 10,
+        padding: 24, maxWidth: 420, width: '100%'
+      }}
+    >
+      <div style={{ fontSize: 11, color: S.accent, fontFamily: 'DM Mono, monospace', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+        Claim Job
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
+        {claimModal.job.address}
+      </div>
+      <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace', marginBottom: 20 }}>
+        Event: {fmtDate(claimModal.job.event_date)} · ${jobPay(claimModal.job, helper?.pay_override)}
+      </div>
+
+      <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>
+        Choose which legs to claim:
+      </div>
+
+      {/* DROP checkbox */}
+      <label
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+          background: S.bg, border: `1px solid ${claimDrop ? S.accent + '66' : S.border}`,
+          borderRadius: 8, marginBottom: 10, cursor: 'pointer'
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={claimDrop}
+          onChange={(e) => setClaimDrop(e.target.checked)}
+          style={{ width: 18, height: 18, cursor: 'pointer' }}
+        />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Drop (Install)</div>
+          <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>
+            Setup: {fmtDate(claimModal.job.setup_date)}
+          </div>
+        </div>
+      </label>
+
+      {/* PICK checkbox — disabled if no pair or already claimed */}
+      {claimModal.hasPick ? (
+        <label
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+            background: S.bg,
+            border: `1px solid ${claimModal.pickClaimed ? S.border : (claimPick ? S.accent + '66' : S.border)}`,
+            borderRadius: 8, marginBottom: 20,
+            cursor: claimModal.pickClaimed ? 'not-allowed' : 'pointer',
+            opacity: claimModal.pickClaimed ? 0.5 : 1
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={claimPick}
+            disabled={claimModal.pickClaimed}
+            onChange={(e) => setClaimPick(e.target.checked)}
+            style={{ width: 18, height: 18, cursor: claimModal.pickClaimed ? 'not-allowed' : 'pointer' }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>Pick (Removal)</div>
+            <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>
+              {claimModal.pickClaimed
+                ? 'Already claimed by another helper'
+                : 'After the event ends'}
+            </div>
+          </div>
+        </label>
+      ) : (
+        <div
+          style={{
+            padding: '10px 14px', background: S.bg, border: `1px dashed ${S.border}`,
+            borderRadius: 8, marginBottom: 20, fontSize: 12, color: S.muted,
+            fontFamily: 'DM Mono, monospace'
+          }}
+        >
+          No paired pickup for this job.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={closeClaimModal}
+          disabled={claimSubmitting}
+          style={{
+            flex: 1, background: 'transparent', color: S.muted,
+            border: `1px solid ${S.border}`, borderRadius: 6, padding: '10px 16px',
+            fontSize: 13, cursor: claimSubmitting ? 'wait' : 'pointer',
+            fontFamily: 'DM Sans, sans-serif'
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={confirmClaim}
+          disabled={claimSubmitting || (!claimDrop && !claimPick)}
+          style={{
+            flex: 2, background: S.accent, color: '#000', border: 'none',
+            borderRadius: 6, padding: '10px 16px', fontSize: 13, fontWeight: 600,
+            cursor: claimSubmitting ? 'wait' : 'pointer',
+            opacity: (claimSubmitting || (!claimDrop && !claimPick)) ? 0.5 : 1,
+            fontFamily: 'DM Sans, sans-serif'
+          }}
+        >
+          {claimSubmitting ? 'Claiming...' : `Confirm Claim${claimDrop && claimPick ? ' (Both)' : ''}`}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
       {toast && <div style={{ position: 'fixed', bottom: 24, right: 24, background: S.surface, border: `1px solid ${S.green}`, color: S.green, padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 500, zIndex: 999 }}>{toast}</div>}
     </div>
   )
