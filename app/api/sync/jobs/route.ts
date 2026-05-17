@@ -81,6 +81,54 @@ type SyncResult = {
 }
 
 // ── HELPERS ────────────────────────────────────────────────
+
+/**
+ * Normalize an address for use in dedup_key generation.
+ *
+ * The Apps Script sometimes sends the same physical address with and without
+ * a trailing ZIP, with inconsistent spacing, or with mixed case. Without
+ * normalization, the same job gets two different dedup_keys and slips past
+ * uniqueness, producing visible duplicates in the helper UI.
+ *
+ * Rules (intentionally conservative — we want collisions for true matches,
+ * never for genuinely different addresses):
+ *   - lowercase
+ *   - strip trailing US ZIP (5-digit, optional +4)
+ *   - collapse runs of whitespace to a single space
+ *   - trim
+ */
+function normalizeAddressForDedup(address: string): string {
+  return (address || '')
+    .toLowerCase()
+    .replace(/\s+\d{5}(-\d{4})?\s*$/, '') // strip trailing ZIP / ZIP+4
+    .replace(/\s+/g, ' ')                  // collapse whitespace
+    .trim()
+}
+
+/**
+ * Build the canonical dedup_key server-side from the incoming job.
+ *
+ * We deliberately ignore whatever dedup_key the Apps Script sent. The Apps
+ * Script has been observed sending raw-address-based keys that vary case-by-
+ * case. Computing this here makes the route the single source of truth.
+ *
+ * Strategy:
+ *   - If order_num is present: "drop:ord:2814054"
+ *   - Otherwise fall back to:  "drop:<normalized address>||<event_date>"
+ *
+ * The kind prefix keeps drop and pick distinct, which is intentional —
+ * they are independent rows by design (Model C).
+ */
+function buildDedupKey(j: IncomingJob): string {
+  const kind = j.kind || 'drop'
+  if (j.order_num && j.order_num.trim()) {
+    return `${kind}:ord:${j.order_num.trim()}`
+  }
+  const addr = normalizeAddressForDedup(j.address || '')
+  const date = j.event_date || ''
+  return `${kind}:${addr}||${date}`
+}
+
 function isValidJob(j: any): j is IncomingJob {
   if (!j || typeof j !== 'object') return false
   if (typeof j.dedup_key !== 'string' || !j.dedup_key.trim()) return false
@@ -229,6 +277,12 @@ export async function POST(req: NextRequest) {
   let validationErrors = 0
   for (const raw of rawIncoming) {
     if (isValidJob(raw)) {
+      // Authoritative dedup_key: ignore whatever Apps Script sent and rebuild
+      // server-side from a normalized address + order_num. This is the single
+      // source of truth — every downstream operation (existence check, upsert,
+      // cancel-sweep, pair-link) reads from raw.dedup_key, so setting it here
+      // is sufficient.
+      raw.dedup_key = buildDedupKey(raw)
       incoming.push(raw)
     } else {
       validationErrors++
