@@ -42,50 +42,31 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase()
 
-  // Get all this helper's claimed/installed jobs
   const { data: allJobs, error } = await db
     .from('jobs')
-    .select('id, address, event_date, setup_date, status, territory, type, helper_id')
+    .select('id, address, event_date, setup_date, status, territory, type, kind, helper_id')
     .eq('helper_id', token.id)
-    .in('status', ['claimed', 'installed'])
-    .order('event_date', { ascending: true })
+    .eq('status', 'claimed')
+    .order('setup_date', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   const jobs = allJobs || []
 
-  // Compute pickup_date = event_date + 1 (TODO: refine for multi-day rentals)
-  function pickupDate(j: any): string | null {
-    if (!j.event_date) return null
-    const d = new Date(j.event_date + 'T12:00:00')
-    if (isNaN(d.getTime())) return null
-    d.setDate(d.getDate() + 1)
-    return d.toISOString().substring(0, 10)
-  }
-
-  // For each job, attach its pickup_date for filtering convenience
-  const jobsWithPickup = jobs.map((j: any) => ({ ...j, _pickup_date: pickupDate(j) }))
-
-  // Determine route date
+  const today = new Date().toISOString().substring(0, 10)
   let routeDate = requestedDate
+
   if (!routeDate) {
-    // Auto-pick: NEXT date (today or future) that has claimed drops OR installed pickups
-    const today = new Date().toISOString().substring(0, 10)
     const candidateDates = new Set<string>()
-    for (const j of jobsWithPickup) {
-      if (j.status === 'claimed' && j.setup_date && j.setup_date >= today) candidateDates.add(j.setup_date)
-      if (j.status === 'installed' && j._pickup_date && j._pickup_date >= today) candidateDates.add(j._pickup_date)
+    for (const j of jobs) {
+      if (j.setup_date && j.setup_date >= today) candidateDates.add(j.setup_date)
     }
     if (candidateDates.size === 0) {
       return NextResponse.json({
         ok: true,
         route: {
-          date: today,
-          drops: [],
-          pickups: [],
-          totalMiles: 0,
-          mapsUrl: null,
-          optimized: false,
-          routeType: 'empty',
+          date: today, drops: [], pickups: [],
+          totalMiles: 0, mapsUrl: null,
+          optimized: false, routeType: 'empty',
           message: 'No upcoming drops or pickups found.'
         }
       })
@@ -93,27 +74,21 @@ export async function POST(req: NextRequest) {
     routeDate = Array.from(candidateDates).sort()[0]
   }
 
-  // Filter jobs for the route date
-  const drops = jobsWithPickup.filter((j: any) => j.status === 'claimed' && j.setup_date === routeDate)
-  const pickups = jobsWithPickup.filter((j: any) => j.status === 'installed' && j._pickup_date === routeDate)
+  const drops = jobs.filter((j: any) => j.kind === 'drop' && j.status === 'claimed' && j.setup_date === routeDate)
+  const pickups = jobs.filter((j: any) => j.kind === 'pick' && j.status === 'claimed' && j.setup_date === routeDate)
 
   if (drops.length === 0 && pickups.length === 0) {
     return NextResponse.json({
       ok: true,
       route: {
-        date: routeDate,
-        drops: [],
-        pickups: [],
-        totalMiles: 0,
-        mapsUrl: null,
-        optimized: false,
-        routeType: 'empty',
+        date: routeDate, drops: [], pickups: [],
+        totalMiles: 0, mapsUrl: null,
+        optimized: false, routeType: 'empty',
         message: `No drops or pickups on ${routeDate}.`
       }
     })
   }
 
-  // Determine route type
   const routeType = drops.length > 0 && pickups.length > 0
     ? 'mixed'
     : drops.length > 0
