@@ -731,7 +731,6 @@ async function confirmClaim() {
                   <input
                     type="file"
                     accept="image/*"
-                    capture="environment"
                     className="hidden"
                     disabled={uploadingJobId === j.id}
                     onChange={(e) => {
@@ -767,7 +766,6 @@ async function confirmClaim() {
                     <input
                       type="file"
                       accept="image/*"
-                      capture="environment"
                       className="hidden"
                       disabled={uploadingJobId === j.id}
                       onChange={(e) => {
