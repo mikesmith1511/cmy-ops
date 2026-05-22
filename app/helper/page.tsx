@@ -28,7 +28,39 @@ function jobPay(j: any, payOverride?: number): number {
   if (payOverride) return payOverride
   return isVillagesPay(j) ? 40 : 30
 }
+// Parse rental day count out of the details string. Apps Script only writes
+// "Days: N" when N > 1, so absence means a 1-day rental.
+function parseDays(details: string): number {
+  if (!details) return 1
+  const m = details.match(/Days:\s*(\d+)/i)
+  const n = m ? parseInt(m[1], 10) : 1
+  return n > 0 ? n : 1
+}
 
+// Classify sign type + add-ons from the details string. Returns an array of
+// chips to render. Standard (non-POV) jobs get NO sign chip per spec — only
+// LED if present. Keys off the markers Apps Script prepends to details
+// (⭐ SUPER SIGN / VILLAGES STANDARD / MIDDLETON) and the LED add-on flag.
+function signChips(j: any): { label: string; icon: string; tone: 'sign'|'led' }[] {
+  const d = (j.details || '').toLowerCase()
+  const chips: { label: string; icon: string; tone: 'sign'|'led' }[] = []
+  const isPov = j.type === 'pov'
+
+  if (isPov) {
+    if (d.includes('middleton')) {
+      chips.push({ label: 'Middleton sign', icon: '◆', tone: 'sign' })
+    } else if (d.includes('super sign') || d.includes('super stars')) {
+      chips.push({ label: 'Large Villages sign', icon: '★', tone: 'sign' })
+    } else {
+      chips.push({ label: 'Villages sign', icon: '▮', tone: 'sign' })
+    }
+  }
+  // LED is additive — stacks with any sign type, applies to standard jobs too.
+  if (d.includes('led')) {
+    chips.push({ label: 'LED lights', icon: '✦', tone: 'led' })
+  }
+  return chips
+}
 // Helper: extract city from address
 function extractCity(address: string): string {
   if (!address) return ''
@@ -956,21 +988,60 @@ async function confirmClaim() {
             </div>
 
             {!filteredAvailable.length && <div style={{ ...card, textAlign: 'center', color: S.muted, padding: 40 }}>No jobs match your filters.</div>}
-            {filteredAvailable.map(j => (
-              <div key={j.id} style={card}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                  <div>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>{j.address}</div>
-                    <div style={{ fontSize: 12, color: S.muted, fontFamily: 'DM Mono, monospace' }}>Event: {fmtDate(j.event_date)} &nbsp;·&nbsp; Setup: {fmtDate(j.setup_date)} &nbsp;·&nbsp; ${jobPay(j, helper?.pay_override)}</div>
-                  </div>
-                  <Badge t={j.territory || 'UK'} />
-                </div>
-                {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>{j.details}</div>}
-                <button style={{ ...btnSm, opacity: helper?.approved ? 1 : 0.5, cursor: helper?.approved ? 'pointer' : 'not-allowed' }} onClick={() => helper?.approved && openClaimModal(j)}>
-  {helper?.approved ? 'Claim Job' : 'Approval Required'}
-</button>
-              </div>
-            ))}
+            {filteredAvailable.map(j => {
+  const days = parseDays(j.details)
+  const chips = signChips(j)
+  // Pickup timing for the helper: pick happens event + (days - 1), evening.
+  const pickHint = days === 1 ? 'pick next eve' : `${days} days · pick last eve`
+  return (
+    <div key={j.id} style={card}>
+      {/* Top row: setup date (big, left) + DROP/territory + event (muted, right) */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 2 }}>Setup</div>
+          <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.05, color: S.text }}>{fmtDate(j.setup_date)}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <Badge t={j.territory || 'UK'} />
+          <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', marginTop: 6 }}>Event {fmtDate(j.event_date)}</div>
+        </div>
+      </div>
+
+      {/* Address */}
+      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8 }}>{j.address}</div>
+
+      {/* Chips row: sign type(s), LED, day count */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+        {chips.map((c, i) => (
+          <span key={i} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 5,
+            fontSize: 11, fontFamily: 'DM Mono, monospace', padding: '3px 9px', borderRadius: 4,
+            background: (c.tone === 'led' ? S.orange : S.blue) + '1c',
+            color: c.tone === 'led' ? S.orange : S.blue,
+            border: `1px solid ${(c.tone === 'led' ? S.orange : S.blue)}44`
+          }}>
+            <span style={{ fontSize: 12 }}>{c.icon}</span> {c.label}
+          </span>
+        ))}
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          fontSize: 11, fontFamily: 'DM Mono, monospace', padding: '3px 9px', borderRadius: 4,
+          background: S.surface2, color: S.muted, border: `1px solid ${S.border}`
+        }}>
+          ⧗ {days === 1 ? '1 day' : `${days} days`} · {pickHint}
+        </span>
+      </div>
+
+      {/* Details */}
+      {j.details && <div style={{ fontSize: 13, color: S.muted, marginBottom: 12, lineHeight: 1.5 }}>{j.details}</div>}
+
+      {/* Claim */}
+      <button style={{ ...btnSm, width: '100%', opacity: helper?.approved ? 1 : 0.5, cursor: helper?.approved ? 'pointer' : 'not-allowed' }} onClick={() => helper?.approved && openClaimModal(j)}>
+        {helper?.approved ? `Claim Job · $${jobPay(j, helper?.pay_override)}` : 'Approval Required'}
+      </button>
+    </div>
+  )
+})}
           </div>
         )}
 
