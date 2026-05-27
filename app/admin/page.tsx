@@ -1323,50 +1323,7 @@ export default function AdminPage() {
         )}
 
         {/* REPORTS */}
-        {tab === 'reports' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700 }}>Reports</h2>
-              <button style={{ ...btn, background: S.green }} onClick={export1099}>⬇ Export 1099 CSV</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div style={card}>
-                <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Jobs by Territory</div>
-                {reports ? ['WW','TV','CL'].map(t => {
-                  const count = (reports.territories || []).find((r: any) => r.territory === t)?.total || 0
-                  const total = (reports.territories || []).reduce((s: number, r: any) => s + r.total, 0)
-                  return (
-                    <div key={t} style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}><Badge t={t} /><span style={{ fontSize: 13, fontWeight: 600 }}>{count}</span></div>
-                      <div style={{ height: 6, background: S.border, borderRadius: 3, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', background: S.accent, borderRadius: 3, width: `${total ? count / total * 100 : 0}%` }} />
-                      </div>
-                    </div>
-                  )
-                }) : <div style={{ color: S.muted, fontSize: 13 }}>No data.</div>}
-              </div>
-              <div style={card}>
-                <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Helper Compensation</div>
-                {reports?.summary?.length ? reports.summary.map((r: any) => (
-                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${S.border}` }}>
-                    <div><div style={{ fontWeight: 500 }}>{r.name}</div><div style={{ fontSize: 11, color: S.muted }}>{r.email}</div></div>
-                    <span style={{ fontFamily: 'DM Mono, monospace', color: S.green }}>${r.totalComp.toFixed(2)}</span>
-                  </div>
-                )) : <div style={{ color: S.muted, fontSize: 13 }}>No completed jobs yet.</div>}
-              </div>
-            </div>
-            <div style={card}>
-              <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Monthly Volume</div>
-              {reports?.monthly ? Object.entries(reports.monthly).sort().map(([m, c]: any) => (
-                <div key={m} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${S.border}` }}>
-                  <span style={{ fontFamily: 'DM Mono, monospace' }}>{m}</span>
-                  <span style={{ fontWeight: 600 }}>{c} jobs</span>
-                </div>
-              )) : <div style={{ color: S.muted, fontSize: 13 }}>No data.</div>}
-            </div>
-          </div>
-        )}
-
+        {tab === 'reports' && <ReportsTab helpers={helpers} />}
         {/* SETTINGS */}
         {tab === 'settings' && (
           <div>
