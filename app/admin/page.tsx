@@ -582,9 +582,7 @@ export default function AdminPage() {
       {/* Nav */}
       <div style={{ background: S.surface, borderBottom: `1px solid ${S.border}`, display: 'flex', padding: '0 24px', overflowX: 'auto' }}>
         {['dashboard','calendar','jobs','queue','inventory','helpers','training','reports','settings'].map(t => (
-          <div key={t} onClick={() => { setTab(t); if (t === 'reports') api('/api/reports').then(r => { if (r.summary) setReports(r) }) }} style={{ padding: '10px 18px', fontSize: 13, fontWeight: 500, color: tab === t ? S.accent : S.muted, cursor: 'pointer', borderBottom: `2px solid ${tab === t ? S.accent : 'transparent'}`, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{t}</div>
-        ))}
-      </div>
+          <div key={t} onClick={() => setTab(t)} style={{ padding: '10px 18px', fontSize: 13, fontWeight: 500, color: tab === t ? S.accent : S.muted, cursor: 'pointer', borderBottom: `2px solid ${tab === t ? S.accent : 'transparent'}`, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{t}</div>
 
       {/* Main */}
       <div style={{ flex: 1, padding: 24, maxWidth: 1400, width: '100%', margin: '0 auto' }}>
