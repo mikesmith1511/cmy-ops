@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-
+import ReportsTab from './reports/ReportsTab'
 const S: Record<string, any> = {
   bg: '#0f0f0f', surface: '#1a1a1a', surface2: '#222', border: '#2e2e2e',
   accent: '#f5c842', accent2: '#e8a020', text: '#e8e8e8', muted: '#888',
