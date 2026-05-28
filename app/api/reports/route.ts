@@ -146,8 +146,11 @@ export async function GET(req: NextRequest) {
     if (j.kind === 'pick') agg.picks += 1
 
     const statusKey = (j.status as string) || 'unknown'
-    if (statusKey in agg) (agg as any)[statusKey] += 1
-
+    if (statusKey === 'complete')   agg.completed += 1
+    if (statusKey === 'pending')    agg.pending += 1
+    if (statusKey === 'claimed')    agg.claimed += 1
+    if (statusKey === 'installed')  agg.installed += 1
+    if (statusKey === 'cancelled')  agg.cancelled += 1
     agg.earnings += j.pay
 
     const t = j.territory || 'UK'
@@ -180,7 +183,11 @@ export async function GET(req: NextRequest) {
     if (j.kind === 'drop') agg.drops += 1
     if (j.kind === 'pick') agg.picks += 1
     const sk = (j.status as string) || 'unknown'
-    if (sk in agg) (agg as any)[sk] += 1
+    if (sk === 'complete')   agg.completed += 1
+    if (sk === 'pending')    agg.pending += 1
+    if (sk === 'claimed')    agg.claimed += 1
+    if (sk === 'installed')  agg.installed += 1
+    if (sk === 'cancelled')  agg.cancelled += 1
     agg.revenue += j.pay
     if (j.helper_id) agg.uniqueHelpers.add(j.helper_id)
     terrAgg.set(t, agg)
