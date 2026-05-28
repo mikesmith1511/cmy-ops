@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import ReportsTab from './reports/ReportsTab'
+
 const S: Record<string, any> = {
   bg: '#0f0f0f', surface: '#1a1a1a', surface2: '#222', border: '#2e2e2e',
   accent: '#f5c842', accent2: '#e8a020', text: '#e8e8e8', muted: '#888',
@@ -22,7 +23,6 @@ export default function AdminPage() {
   const [invites, setInvites] = useState<any[]>([])
   const [modules, setModules] = useState<any[]>([])
   const [completions, setCompletions] = useState<any[]>([])
-  const [reports, setReports] = useState<any>(null)
   const [calYear, setCalYear] = useState(new Date().getFullYear())
   const [calMonth, setCalMonth] = useState(new Date().getMonth())
   const [loginEmail, setLoginEmail] = useState('wildwood@cardmyyard.com')
@@ -78,15 +78,14 @@ export default function AdminPage() {
   }
 
   const loadAll = useCallback(async () => {
-    const [j, h, i, t, r] = await Promise.all([
+    const [j, h, i, t] = await Promise.all([
       api('/api/jobs'), api('/api/helpers'), api('/api/invites'),
-      api('/api/training'), api('/api/reports')
+      api('/api/training')
     ])
     if (Array.isArray(j)) setJobs(j)
     if (Array.isArray(h)) setHelpers(h)
     if (Array.isArray(i)) setInvites(i)
     if (t.modules) { setModules(t.modules); setCompletions(t.completions || []) }
-    if (r.summary) setReports(r)
   }, [])
 
   async function doLogin() {
@@ -325,9 +324,6 @@ export default function AdminPage() {
   }
 
   // ── ZEBRA BROWSER PRINT ──
-  // Talks to the Zebra Browser Print app running on the local machine.
-  // Localhost endpoint at http://localhost:9100/ accepts ZPL via POST.
-
   async function checkPrinter() {
     try {
       const res = await fetch('http://localhost:9100/available', {
@@ -410,26 +406,11 @@ export default function AdminPage() {
   function selectAllVisiblePieces() { setSelectedPieceIds(invPieces.map(p => p.id)) }
   function clearPieceSelection() { setSelectedPieceIds([]) }
 
-  // Auto-check printer status when pieces tab opens
   useEffect(() => {
     if (tab === 'inventory' && invTab === 'pieces') {
       checkPrinter()
     }
   }, [tab, invTab])
-
-  // ── 1099 CSV EXPORT ──
-  function export1099() {
-    if (!reports?.summary?.length) { showToast('No data to export'); return }
-    const header = 'Helper Name,Email,Territory,Jobs Completed,Rate Per Job,Total Compensation\n'
-    const rows = reports.summary.map((r: any) =>
-      `"${r.name}","${r.email}","${r.territory}",${r.jobsCompleted},${r.rate.toFixed(2)},${r.totalComp.toFixed(2)}`
-    ).join('\n')
-    const blob = new Blob([header + rows], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `CMY_1099_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-  }
 
   // ── FILTERED JOBS ──
   const filteredJobs = jobs.filter(j => {
@@ -579,11 +560,6 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {['dashboard','calendar','jobs','queue','inventory','helpers','training','reports','settings'].map(t => (
-          <div key={t} onClick={() => setTab(t)} style={{ padding: '10px 18px', fontSize: 13, fontWeight: 500, color: tab === t ? S.accent : S.muted, cursor: 'pointer', borderBottom: `2px solid ${tab === t ? S.accent : 'transparent'}`, whiteSpace: 'nowrap', textTransform: 'capitalize' }}>{t}</div>
-        ))}
-      <</div>
-
       {/* Nav */}
       <div style={{ background: S.surface, borderBottom: `1px solid ${S.border}`, display: 'flex', padding: '0 24px', overflowX: 'auto' }}>
         {['dashboard','calendar','jobs','queue','inventory','helpers','training','reports','settings'].map(t => (
@@ -592,6 +568,7 @@ export default function AdminPage() {
       </div>
 
       {/* Main */}
+      <div style={{ flex: 1, padding: 24, maxWidth: 1400, width: '100%', margin: '0 auto' }}>
 
         {/* DASHBOARD */}
         {tab === 'dashboard' && (
@@ -682,9 +659,9 @@ export default function AdminPage() {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 14 }}>
-                {[['Setup From', fSetupFrom, setFSetupFrom],['Setup To', fSetupTo, setFSetupTo],['Event From', fEventFrom, setFEventFrom],['Event To', fEventTo, setFEventTo]].map(([label, val, set]: any) => (
-                  <div key={label}>
-                    <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</label>
+                {[['Setup From', fSetupFrom, setFSetupFrom],['Setup To', fSetupTo, setFSetupTo],['Event From', fEventFrom, setFEventFrom],['Event To', fEventTo, setFEventTo]].map(([lbl, val, set]: any) => (
+                  <div key={lbl}>
+                    <label style={{ display: 'block', fontSize: 11, color: S.muted, marginBottom: 4, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{lbl}</label>
                     <input style={{ width: '100%', background: S.bg, border: `1px solid ${S.border}`, borderRadius: 4, padding: '6px 10px', color: S.text, fontSize: 12, fontFamily: 'DM Mono, monospace', outline: 'none', boxSizing: 'border-box' as const }} type="date" value={val} onChange={(e: any) => set(e.target.value)} />
                   </div>
                 ))}
@@ -990,7 +967,6 @@ export default function AdminPage() {
             {/* PIECES SUB-TAB */}
             {invTab === 'pieces' && (
               <div>
-                {/* PRINTER STATUS + BULK PRINT TOOLBAR */}
                 <div style={{ ...card, padding: 12, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: S.muted, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Printer:</span>
@@ -1057,7 +1033,6 @@ export default function AdminPage() {
                     <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Bulk Create Pieces</div>
                     <div style={{ fontSize: 12, color: S.muted, marginBottom: 16 }}>
                       Generates N pieces with sequentially numbered barcodes.
-                      Example: prefix "HBD-PINK-" + count 12 + pad 3 → HBD-PINK-001 through HBD-PINK-012.
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 12 }}>
                       <div><label style={label}>Count *</label><input style={input} type="number" name="count" min={1} max={200} required defaultValue="12" /></div>
@@ -1330,6 +1305,7 @@ export default function AdminPage() {
 
         {/* REPORTS */}
         {tab === 'reports' && <ReportsTab helpers={helpers} />}
+
         {/* SETTINGS */}
         {tab === 'settings' && (
           <div>
@@ -1343,13 +1319,9 @@ export default function AdminPage() {
               <div style={{ fontSize: 11, color: S.muted, fontFamily: 'DM Mono, monospace', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Admin Accounts</div>
               <div style={{ fontSize: 13, color: S.muted }}>
                 Admin and helper accounts are stored together in the <span style={{ fontFamily: 'DM Mono, monospace', color: S.accent }}>helpers</span> table.
-                To promote a helper to admin, update their role via SQL:
               </div>
               <div style={{ background: S.bg, border: `1px solid ${S.border}`, borderRadius: 6, padding: 14, fontFamily: 'DM Mono, monospace', fontSize: 12, color: S.accent, marginTop: 10, overflowX: 'auto' }}>
                 UPDATE helpers SET role = 'admin' WHERE email = '...';
-              </div>
-              <div style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>
-                Password resets and account changes propagate at next login.
               </div>
             </div>
             <div style={card}>
