@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getTokenFromRequest, isAdmin } from '@/lib/auth'
 import { getServiceSupabase } from '@/lib/supabase'
-
+export const dynamic = 'force-dynamic'
 export async function GET(req: NextRequest) {
   const token = getTokenFromRequest(req)
   if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
