@@ -734,9 +734,16 @@ async function confirmClaim() {
                   )}
                 </div>
 
+                {/* Customer name */}
+                {j.customer && (
+                  <div className="text-sm font-semibold text-brand-navy-700 dark:text-surface-50 mb-1">
+                    {j.customer}
+                  </div>
+                )}
+
                 {/* Order details */}
                 {j.details && (
-                  <p className="text-sm text-state-pending dark:text-surface-300 mb-3 leading-snug">
+                  <p className="text-sm text-state-pending dark:text-surface-300 mb-3 leading-snug whitespace-pre-line">
                     {j.details}
                   </p>
                 )}
