@@ -26,7 +26,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isAdmin } from '@/lib/auth'
 import { getServiceSupabase } from '@/lib/supabase'
 import { computeJobPay, payScaleForAddress, JobKind } from '@/lib/pay'
-
+export const dynamic = 'force-dynamic'
 type DateBasis = 'event_date' | 'setup_date' | 'created_at' | 'updated_at'
 const VALID_BASIS: DateBasis[] = ['event_date', 'setup_date', 'created_at', 'updated_at']
 
